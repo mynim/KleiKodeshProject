@@ -48,7 +48,42 @@ git push
 
 אפשר להוסיף workflow שמריץ `gh repo sync` פעם ביום. זה דורש הוספת קובץ ל‑`.github/workflows/` — כלומר שינוי ב‑`master`, שמבטל את יתרון ה‑fast‑forward. עדיף להריץ את הפקודה ידנית לפני כל סבב עבודה.
 
-## תלויות לבנייה — מצב המחשב הזה
+## תלויות לבנייה
+
+### ⚠️ צריך Visual Studio **2026**, לא 2022
+
+ה‑README הראשי אומר "Visual Studio 2022 Community". **זה לא מעודכן.** שתי ראיות בקוד:
+
+1. `rebuild-all.ps1` מצביע על `C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\...` — גרסה 18 היא VS 2026.
+2. פרויקטים מרכזיים מכוונים ל‑`net10.0` / `net10.0-windows`, ביניהם `WpfLib` (שכל שרשרת התוסף תלויה בו) ו‑`FtsLib`. VS 2022 לא תומך ב‑.NET 10.
+
+VS 2026 כולל את ה‑SDK של .NET 10 ואת workload ה‑Office עם כלי VSTO.
+
+### התקנה
+
+```powershell
+winget install --id Microsoft.VisualStudio.Community -e --override "--passive --wait --norestart --add Microsoft.VisualStudio.Workload.ManagedDesktop --add Microsoft.VisualStudio.Workload.Office --add Microsoft.VisualStudio.Workload.NativeDesktop --includeRecommended"
+```
+
+שלושת ה‑workloads, וכולם **נדרשים**:
+
+| workload | למה |
+|---|---|
+| `ManagedDesktop` | פיתוח שולחן עבודה ב‑.NET — WPF, חבילות targeting של .NET Framework 4.8 |
+| `Office` | פיתוח Microsoft 365, כולל כלי VSTO |
+| `NativeDesktop` | **ה‑linker של MSVC.** `KitveiHakodeshService` מתפרסם כ‑native AOT (`PublishAot=true`), ו‑ILC לא יכול לקשר בלעדיו. הכשל: `error : Platform linker not found` |
+
+ה‑VSTO Runtime לא נכלל ב‑Community; הוא דורש Office מותקן על מכונת הפיתוח — וזה המצב כאן.
+
+**שימו לב:** ה‑VS Installer הוא singleton. אם מריצים שתי התקנות במקביל, השנייה יוצאת מיד ומדווחת הצלחה בלי להתקין כלום.
+
+NSIS, רק אם בונים מתקין:
+
+```powershell
+winget install NSIS.NSIS
+```
+
+### מצב המחשב הזה
 
 נבדק ב‑25.10.2026:
 
@@ -57,27 +92,75 @@ git push
 | Word (Office 16) | ✅ מותקן |
 | .NET Framework 4.8 Runtime | ✅ מותקן |
 | Node.js | ✅ מותקן |
-| **Visual Studio 2022** (עם Office Developer Tools + VSTO SDK) | ❌ **חסר** |
-| **.NET SDK / MSBuild** | ❌ **חסר** |
-| **NSIS 3.08+** (לבניית מתקין) | ❌ **חסר** |
+| Visual Studio 2026 Community + workloads | ✅ הותקן בסבב הזה |
+| NSIS 3.08+ (לבניית מתקין בלבד) | ❌ חסר |
 
-כלומר: אפשר כבר עכשיו לעבוד על **ממשק Vue** של כתבי הקודש (`cd KitveiHakodesh/vue-frontend && npm install && npm run dev`), אבל **אי אפשר לבנות את תוסף ה‑VSTO** עד להתקנת Visual Studio.
+## ⚠️ ChromeTabs — תלות שחסרה בשכפול נקי
 
-### התקנה
+`KleiKodeshProject.slnx` ו‑`KitveiHakodeshLib.csproj` מפנים ל‑`ChromeTabs/FluentChromeTabs/FluentChromeTabs.csproj`, אבל `.gitignore` מוציא את `/ChromeTabs/` מהמעקב. אחרי `git clone` התיקייה **לא קיימת**, ו‑`KitveiHakodeshLib` → `KleiKodeshVsto` לא נבנים.
 
-```powershell
-winget install Microsoft.VisualStudio.2022.Community
+התיקייה היא עותק מקומי של [KleiKodesh/EasyTabs](https://github.com/KleiKodesh/EasyTabs) — ראו את הקומיטים `a8297a92` ("Stop tracking EasyTabs") ו‑`8b86aa21` ("Rename the EasyTabs folder to ChromeTabs"). הפתרון:
+
+```bash
+git clone https://github.com/KleiKodesh/EasyTabs.git ChromeTabs
 ```
 
-ואז ב‑Visual Studio Installer לסמן:
-- **.NET desktop development**
-- **Office/SharePoint development** (זה מביא את VSTO SDK)
+מריצים את זה **בשורש המאגר**. התיקייה מוגדרת ב‑`.gitignore`, ולכן לא תיכנס לקומיטים.
 
-NSIS, רק אם בונים מתקין:
+שווה לפתוח על זה issue במאגר הראשי — השכפול הנקי שבור בלי השלב הזה, והוא לא מתועד.
+
+## עוד שלושה חסמים בשכפול נקי
+
+כל אלה התגלו בניסיון בנייה אמיתי ב‑25.10.2026, וכולם פוגעים בכל מי שמשכפל את המאגר.
+
+### 1. חבילות NuGet בנתיב שגוי
+
+ארבעה פרויקטים מייבאים את `System.ValueTuple` מנתיב יחסי `..\packages\`, שתקף רק כשבונים אותם **מהפתרון המקומי שלהם** — לא מהפתרון הראשי. ה‑restore של הפתרון הראשי שם את החבילות ב‑`packages\` שבשורש, והבנייה נכשלת עם *"This project references NuGet package(s) that are missing on this computer"*.
+
+הפרויקטים: `WebSitesLib`, `Nakdan`, `KitveiHakodeshLib`, `KitveiHakodeshDemoApp`.
+
+הפתרון — restore לכל פתרון‑משנה בנפרד:
 
 ```powershell
-winget install NSIS.NSIS
+$msb = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe'
+& $msb 'KleiKodeshVsto\nakdan\Nakdan.slnx' -t:restore -p:RestorePackagesConfig=true
+& $msb 'KitveiHakodesh\CSharpBackend\KitveiHakodesh.slnx' -t:restore -p:RestorePackagesConfig=true
 ```
+
+**`WebSitesLib.sln` שבור** ואי אפשר לעשות לו restore: הוא מפנה לנתיב מוחלט מהמחשב של המפתח המקורי — `C:\Users\Admin\source\repos\WpfLib\WpfLib\WpfLib.csproj`. עוקפים בהעתקה ידנית:
+
+```powershell
+New-Item -ItemType Directory -Force -Path 'KleiKodeshVsto\WebSitesLib\packages' | Out-Null
+Copy-Item 'packages\System.ValueTuple.4.6.1' -Destination 'KleiKodeshVsto\WebSitesLib\packages' -Recurse -Force
+```
+
+### 2. `hb-mirror.json` — קובץ סודות שחוסם את הבנייה
+
+`KitveiHakodeshService.csproj` מגדיר target שנכשל בכוונה אם `KitveiHakodesh.Core\HebrewBooks\hb-mirror.json` חסר. הקובץ מחזיק את כתובות המראה של HebrewBooks ומפתחות Cloudflare R2, והוא לא ב‑git.
+
+ההערה בקוד אומרת "Publish-only: dev builds are not blocked" — אבל בנייה רגילה של `KitveiHakodeshLib` מריצה `dotnet publish` של השירות, ולכן ה‑target כן נורה.
+
+`HebrewBooksDownloadSources` מתעד במפורש שקובץ חסר או ריק פשוט מדלג על ה‑fallbacks ונשאר עם ה‑handler הרשמי. לכן קובץ מקומי עם אובייקט ריק מספיק לפיתוח (הוא ב‑gitignore ולא ייכנס לקומיטים):
+
+```json
+{ "_comment": "local dev placeholder - official handler only" }
+```
+
+### 3. ההתקנה של workload חייבת הרשאות מראש
+
+`setup.exe modify --quiet` **לא מעלה הרשאות בעצמו**. אם מריצים אותו לא‑מורם הוא יוצא עם קוד `5007` והלוג אומר: *"Commands with --quiet or --passive should be run elevated from the beginning"*. צריך `Start-Process -Verb RunAs`, ולאשר את ה‑UAC.
+
+כמו כן ל‑verb ‏`modify` אין `--wait` (זו אופציה של ה‑bootstrapper בלבד) — ממתינים לתהליך עצמו.
+
+## מצב הבנייה — 25.10.2026
+
+נבנה בהצלחה:
+
+`WpfLib` (net48 + net10.0-windows) · `FluentChromeTabs` · `DocDesignLib` · `KiwixLib` · `Nakdan` · `RegexFindLib` · `WebSitesLib` · `FtsLib` (net48 + net10.0) · `DocConvertLib` · `KitveiHakodesh.Core` · `SvgToPng` · `KitveiHakodeshService` (הקוד המנוהל) · ממשק ה‑Vue (926 מודולים, כולל `vue-tsc`)
+
+נותר חסום:
+
+הקישור הנייטיבי של `KitveiHakodeshService` — ודרכו `KitveiHakodeshLib` → `KleiKodeshVsto` → המתקין. חסר workload ה‑C++.
 
 ### בנייה
 
