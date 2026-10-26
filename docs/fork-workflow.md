@@ -186,17 +186,35 @@ Copy-Item 'packages\System.ValueTuple.4.6.1' -Destination 'KleiKodeshVsto\WebSit
 error MSB3323: Unable to find manifest signing certificate in the certificate store.
 ```
 
-**ואין דרך לעקוף.** `/p:SignManifests=false` נבדק ונדחה במפורש:
+**ואין דרך לעקוף את החתימה.** `/p:SignManifests=false` נבדק ונדחה במפורש:
 
 ```
 Microsoft.VisualStudio.Tools.Office.targets(162,9): error : Cannot build because the
 ClickOnce manifest signing option is not selected.
 ```
 
-כלומר targets של VSTO דורשים חתימה ולא מקבלים "בלי". שתי האפשרויות האמיתיות:
+כלומר targets של VSTO דורשים חתימה ולא מקבלים "בלי". לכן צריך תעודה.
 
-1. **תעודת בדיקה עצמית** — מה ש‑Visual Studio יוצר בלחיצה על *Create Test Certificate* בלשונית Signing. מתקינה תעודה במחסן התעודות של המשתמש ודורשת לעדכן את ה‑thumbprint. מספיקה לפיתוח ולהרצה מקומית.
-2. **ה‑`.pfx` האמיתי** מהמתחזק של המאגר הראשי. נדרש לכל בנייה שמיועדת להפצה.
+#### הפתרון לפיתוח מקומי
+
+```powershell
+.\Build\scripts\make-dev-cert.ps1
+```
+
+הסקריפט יוצר תעודת code‑signing בחתימה עצמית ב‑`Cert:\CurrentUser\My` (בלי הרשאות מנהל), ומפנה אליה את הפרויקט. הוא idempotent — הרצה חוזרת מזהה תעודה קיימת ומשתמשת בה.
+
+**שתי החלטות בתוכו ששווה להכיר:**
+
+1. **ספק CAPI מדור קודם, ולא CNG.** ה‑task ‏`SignFile` של ClickOnce נכשל על מפתחות CNG עם *"Invalid provider type specified"*, ולכן הסקריפט מעביר במפורש `-Provider 'Microsoft Enhanced Cryptographic Provider v1.0'` ו‑`-KeySpec Signature`. תעודה שנוצרה בבררת המחדל לא תחתום.
+
+2. **ה‑thumbprint נכתב ל‑`KleiKodeshVsto.csproj.user`, ולא ל‑csproj.** שלוש סיבות:
+   - `Microsoft.Common.CurrentVersion.targets` (שורה 30) מייבא את `$(MSBuildProjectFullPath).user` **אחרי** גוף הפרויקט, ולכן הערך שם גובר על זה שמקודד ב‑csproj.
+   - `*.user` מוחרג ב‑`.gitignore` (שורה 26), כך שה‑thumbprint המקומי לא יכול להיכנס בטעות לקומיט ולשבור את הבנייה לכל השאר.
+   - הבנייה המקוננת של המתקין מריצה את `KleiKodeshVsto.csproj` דרך `Exec` עם שורת פקודה קבועה (`KleiKodeshVstoInstallerWpf.csproj`, target `BuildVsto`), כך ש‑`/p:` **לא** היה עובר אליה. קובץ ה‑`.user` כן — הבנייה המקוננת מייבאת אותו בעצמה.
+
+התוצאה: אפס שינויים בקבצים במעקב.
+
+**לבנייה שמיועדת להפצה צריך את ה‑`.pfx` האמיתי** מהמתחזק של המאגר הראשי. תעודה בחתימה עצמית תייצר מתקין שעובד מקומית אבל Windows יסמן אותו כלא מזוהה.
 
 ## מצב הבנייה — 26.10.2026
 
