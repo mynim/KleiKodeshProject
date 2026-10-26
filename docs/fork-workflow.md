@@ -109,6 +109,22 @@ git clone https://github.com/KleiKodesh/EasyTabs.git ChromeTabs
 
 שווה לפתוח על זה issue במאגר הראשי — השכפול הנקי שבור בלי השלב הזה, והוא לא מתועד.
 
+#### וצריך לעדכן אותה בנפרד
+
+`ChromeTabs` הוא מאגר עצמאי שלא במעקב, והוא **זז בקצב שלו**. `git pull` במאגר הראשי לא נוגע בו, ולכן הוא נשאר מאחור בשקט עד שהבנייה נשברת. הסימפטום שנתקלנו בו בפועל:
+
+```
+error CS1061: 'FluentChromeTabsForm' does not contain a definition for 'CloseTabMenuText'
+```
+
+ועוד שלושה כמוהו — `CloseOtherTabsMenuText`, `CloseTabsToTheLeftMenuText`, `CloseTabsToTheRightMenuText`. `ChromeTabsMirror.cs` מציב ארבעתם (כתוביות תפריט סגירת הכרטיסיות, באנגלית ובעברית), והם נוספו ל‑EasyTabs בקומיט `a3e8160`. השגיאה לא אומרת שהתיקייה מיושנת; היא נראית כמו שגיאת קומפילציה רגילה.
+
+לכן, לפני כל סבב בנייה:
+
+```bash
+git -C ChromeTabs pull --ff-only
+```
+
 ## עוד שלושה חסמים בשכפול נקי
 
 כל אלה התגלו בניסיון בנייה אמיתי ב‑25.10.2026, וכולם פוגעים בכל מי שמשכפל את המאגר.
@@ -146,21 +162,49 @@ Copy-Item 'packages\System.ValueTuple.4.6.1' -Destination 'KleiKodeshVsto\WebSit
 { "_comment": "local dev placeholder - official handler only" }
 ```
 
-### 3. ההתקנה של workload חייבת הרשאות מראש
+### 3. ההתקנה של workload חייבת הרשאות מראש ✅ נפתר
 
 `setup.exe modify --quiet` **לא מעלה הרשאות בעצמו**. אם מריצים אותו לא‑מורם הוא יוצא עם קוד `5007` והלוג אומר: *"Commands with --quiet or --passive should be run elevated from the beginning"*. צריך `Start-Process -Verb RunAs`, ולאשר את ה‑UAC.
 
 כמו כן ל‑verb ‏`modify` אין `--wait` (זו אופציה של ה‑bootstrapper בלבד) — ממתינים לתהליך עצמו.
 
-## מצב הבנייה — 25.10.2026
+ועוד מלכודת בבדיקה שאחרי: ה‑linker יושב ב‑`VC\Tools\MSVC\<גרסה>\bin\Hostx64\x64\link.exe` — חמש רמות מתחת ל‑`MSVC`. `find -maxdepth 4` לא ימצא אותו ויראה כאילו ההתקנה נכשלה.
 
-נבנה בהצלחה:
+### 4. תעודת החתימה של ClickOnce חסרה
 
-`WpfLib` (net48 + net10.0-windows) · `FluentChromeTabs` · `DocDesignLib` · `KiwixLib` · `Nakdan` · `RegexFindLib` · `WebSitesLib` · `FtsLib` (net48 + net10.0) · `DocConvertLib` · `KitveiHakodesh.Core` · `SvgToPng` · `KitveiHakodeshService` (הקוד המנוהל) · ממשק ה‑Vue (926 מודולים, כולל `vue-tsc`)
+`KleiKodeshVsto.csproj` מגדיר:
 
-נותר חסום:
+```xml
+<SignManifests>true</SignManifests>
+<ManifestKeyFile>KleiKodesh_TemporaryKey.pfx</ManifestKeyFile>
+<ManifestCertificateThumbprint>248FB7586402B5FEA4B6FEFF20723CFBB6437082</ManifestCertificateThumbprint>
+```
 
-הקישור הנייטיבי של `KitveiHakodeshService` — ודרכו `KitveiHakodeshLib` → `KleiKodeshVsto` → המתקין. חסר workload ה‑C++.
+ה‑`.pfx` מוחרג ב‑`.gitignore` (שורה 256, `*.pfx`), וה‑thumbprint מצביע על תעודה שקיימת רק במחסן התעודות של המפתח המקורי. בשכפול נקי הבנייה נכשלת:
+
+```
+error MSB3323: Unable to find manifest signing certificate in the certificate store.
+```
+
+**ואין דרך לעקוף.** `/p:SignManifests=false` נבדק ונדחה במפורש:
+
+```
+Microsoft.VisualStudio.Tools.Office.targets(162,9): error : Cannot build because the
+ClickOnce manifest signing option is not selected.
+```
+
+כלומר targets של VSTO דורשים חתימה ולא מקבלים "בלי". שתי האפשרויות האמיתיות:
+
+1. **תעודת בדיקה עצמית** — מה ש‑Visual Studio יוצר בלחיצה על *Create Test Certificate* בלשונית Signing. מתקינה תעודה במחסן התעודות של המשתמש ודורשת לעדכן את ה‑thumbprint. מספיקה לפיתוח ולהרצה מקומית.
+2. **ה‑`.pfx` האמיתי** מהמתחזק של המאגר הראשי. נדרש לכל בנייה שמיועדת להפצה.
+
+## מצב הבנייה — 26.10.2026
+
+workload ה‑C++ הותקן, והקישור הנייטיבי של `KitveiHakodeshService` עובר — `Platform linker not found` נעלם.
+
+**מתקמפל במלואו**, כולל כל מה שהיה חסום קודם: `KitveiHakodeshService` (נייטיבי), `KitveiHakodeshLib`, ו‑`KleiKodeshVsto` → `KleiKodesh.dll`.
+
+**נותר חסום:** יצירת מניפסטי ה‑ClickOnce, ודרכם המתקין. חסמה היחידה היא תעודת החתימה — חסם תצורה, לא חסם קוד.
 
 ### בנייה
 
