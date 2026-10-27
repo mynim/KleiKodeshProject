@@ -6,6 +6,31 @@ Raw inventory, read off the source on 2026-10-26. Evidence base for
 Scope: navigation, access, saving and reuse, keyboard shortcuts, history, settings.
 The editing/proofreading dimension was deliberately excluded.
 
+> ⚠️ **Read against code that was 101 commits behind upstream.** Re-verified on
+> 2026-10-27 after syncing to `v10.3.0`. The headline findings all survived — no
+> bookmarks, zero Word-level key bindings, one shortcut source matched on `e.code`,
+> the Word pane still single-tab, the ribbon still one group with one `splitButton`
+> defaulting to `Settings`. **Four entries below are now wrong:**
+>
+> 1. **`ShortcutsReferenceList.vue` is no longer script-free.** It now has logic that
+>    shows or hides shortcut groups by `hasNativeChromeTabs`.
+> 2. **`workspaceStore.switchWorkspace` no longer reloads.** It sets the active id and
+>    persists. `Workspace` is a thin `{ id, name, createdAt }`; the heavy per-tab and
+>    per-book state lives under workspace-scoped keys, not inside the record.
+> 3. **`useSettingsSearch.ts` moved** from `composables/` to `features/settings/`.
+> 4. **Multi-select does exist**, for lines inside a book (`multiSelectLineIds`). What
+>    is missing is multi-select in *lists*, to open several items at once.
+>
+> **And one thing the inventory never had:** the add-in now injects items into 15 of
+> Word's context menus (`ContextMenuXmlBuilder.cs`) — full-text search and catalog
+> search from the selection, compare, and open-link. That is a Word-level access path
+> the synthesis was written without. See
+> [the synthesis' verification section](navigation-and-shortcuts.md#מה-אומת-ומה-התיישן--27102026).
+>
+> Also structural: the book view and the search results page were rewritten onto
+> `WindowedScroller` upstream and `@tanstack/vue-virtual` was dropped, so rows are no
+> longer all in the DOM.
+
 ---
 
 # Navigation, persistence, shortcuts and personalisation — current state
