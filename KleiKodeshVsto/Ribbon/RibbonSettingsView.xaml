@@ -122,6 +122,24 @@
                 </StackPanel>
             </Border>
 
+            <!-- Word-level keyboard shortcuts (Helpers\WordShortcuts.cs). The rows are
+                 built in code from WordShortcuts.CommandIds, so a command added there
+                 shows up here on its own. -->
+            <Border Style="{StaticResource Card}">
+                <Expander>
+                    <Expander.Header>
+                        <TextBlock x:Name="ShortcutsHeader" Style="{StaticResource GroupHeader}"/>
+                    </Expander.Header>
+                    <StackPanel>
+                        <Separator/>
+                        <TextBlock x:Name="ShortcutsState" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"/>
+                        <Button x:Name="BtnShortcutsInstall" Margin="0,0,0,10" Visibility="Collapsed"/>
+                        <StackPanel x:Name="ShortcutsPanel"/>
+                        <TextBlock x:Name="ShortcutsHint" TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="0,6,0,0"/>
+                    </StackPanel>
+                </Expander>
+            </Border>
+
             <Button x:Name="BtnReset"/>
 
         </StackPanel>

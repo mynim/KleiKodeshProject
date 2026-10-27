@@ -295,6 +295,7 @@
     <Compile Include="Helpers\OfficeThemeWatcher.cs" />
     <Compile Include="Helpers\AddinUiLanguage.cs" />
     <Compile Include="Helpers\VbaMacrosTemplate.cs" />
+    <Compile Include="Helpers\WordShortcuts.cs" />
     <Compile Include="Helpers\SettingsManager.cs" />
     <Compile Include="Helpers\TaskpaneManager.cs" />
     <Compile Include="Helpers\WdActionManager.cs" />

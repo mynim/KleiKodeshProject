@@ -55,9 +55,16 @@ def module_source(lang):
              'End Function']
     # "public void Nakdan() => AddinCommands.Run(...)" / "public void <Hebrew>() => Nakdan();"
     # The Hebrew alias calls its English twin, so every macro calls an English member.
-    # English ids are ASCII and the Hebrew labels are not: that picks each template's names.
+    # English ids are ASCII and the Hebrew labels are not: that tells the two apart.
+    #
+    # The .en template carries the ASCII ids alone. The .he one carries the Hebrew
+    # labels AND the ASCII ids, because Word stores a keyboard shortcut as the NAME of
+    # the macro it runs (Helpers\WordShortcuts.cs): binding to the ASCII name is what
+    # lets a shortcut survive the user switching macro names between Hebrew and
+    # English, and keeps it independent of Windows' "language for non-Unicode
+    # programs" - which a Hebrew macro name needs and an ASCII one does not.
     for name, twin in re.findall(r'public void (\w+)\(\) => (\w+)', code):
-        if name.isascii() != (lang == 'en'):
+        if lang == 'en' and not name.isascii():
             continue
         member = name if twin == 'AddinCommands' else twin
         lines += ['', 'Public Sub %s()' % name, '    KleiKodeshAddin.%s' % member, 'End Sub']
