@@ -101,9 +101,19 @@ powershell -ExecutionPolicy Bypass -File Build\scripts\make-dev-cert.ps1
 
 ### ד. אין לסמוך על קוד יציאה אחרי צינור
 
-`msbuild ... | tail` מחזיר את קוד היציאה של `tail`, לא של הבנייה. זו טעות שכבר הטעתה פעם אחת כאן. להפנות לקובץ יומן ולבדוק אותו.
+`msbuild ... | tail` מחזיר את קוד היציאה של `tail`, לא של הבנייה. זו טעות שכבר הטעתה **פעמיים** כאן. להריץ את הבנייה כפקודה אחרונה, או להפנות לקובץ יומן ולבדוק את הקוד בעצמו.
 
-### ה. שני קבצים שאסור לדחוף
+### ה. בניית החזית מדלגת לפי קובץ חתימה — והחבילה תצא בלי השינויים
+
+`KitveiHakodesh/CSharpBackend/KitveiHakodesh.targets` מריץ `npm run build` רק כשקבצי המקור חדשים מ‑`vue-frontend/dist/.build-stamp`. כשהחתימה חדשה מהקבצים, **הבנייה מצליחה והחבילה נבנית בלי השינויים בפנים** — בדיקה בוורד לא תראה הבדל, והחיפוש אחר הבאג יילך למקום הלא נכון. לפני בנייה שאמורה להיבדק בוורד יש למחוק את `.build-stamp`, ואחרי הבנייה לוודא שביומן מופיעות השורות `Running npm run build` ו‑`built in`.
+
+### ו. הקוד של הפרויקט המקורי לא תמיד עובר בדיקת טיפוסים
+
+במצב `117b1cdd` (תג `v10.3.0`) המקור **אינו עובר**: `useBookViewCommentaryAnnotations.ts` מפרק `getNoteById` מ‑`useCommentaryNotes`, שאיננה מחזירה אותה — ריפקטור חצי בקומיט `2a799056`. ומכיוון שהבנייה מריצה `npm run build` בתוכה, **הבנייה כולה נעצרת** ואין מתקין.
+
+ושים לב: `vue-tsc --noEmit` (ה‑script בשם `type-check`) **עובר** גם כש‑`vue-tsc --build` נכשל. בדיקה לפני בנייה חייבת להריץ `npm run build`, ולא רק `type-check`.
+
+### ז. שני קבצים שאסור לדחוף
 
 | הקובץ | למה |
 |---|---|
@@ -117,14 +127,20 @@ powershell -ExecutionPolicy Bypass -File Build\scripts\make-dev-cert.ps1
 ## 7. פקודות הבנייה
 
 ```powershell
-# הפרויקט כולו
-msbuild KleiKodeshProject.slnx /p:Configuration=Debug /p:Platform=x64
+# הפרויקט כולו — בלי Platform, ראה למטה
+msbuild KleiKodeshProject.slnx -p:Configuration=Debug -p:RestorePackagesConfig=true -restore
 
 # חבילת התקנה (תפריט)
 Build\build-menu.bat
 ```
 
 ההצלחה היחידה שנחשבת: **`0 Error(s)`**.
+
+**שלוש מלכודות בפקודה הזאת, כולן אומתו ב‑27.10.2026:**
+
+1. **אין `-p:Platform=x64`.** ה‑`.slnx` שסונכרן מהמקור איננו מגדיר פלטפורמות, ו‑`Debug|x64` נדחה ב‑`MSB4126`. זו הפקודה שתועדה כאן קודם, והיא נכתבה לפני הסנכרון.
+2. **`msbuild` איננו ב‑PATH** בקונסולה רגילה (יוצא `127`). הנתיב המלא נמצא תחת `Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\`.
+3. **בקונסולת Bash יש להשתמש ב‑`-p:` ולא ב‑`/p:`** — ארגומנט שמתחיל בלוכסן מומר לנתיב Windows, ו‑MSBuild מודיע `MSB1008: Only one project can be specified`.
 
 ---
 
