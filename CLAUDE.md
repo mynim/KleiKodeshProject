@@ -113,7 +113,17 @@ powershell -ExecutionPolicy Bypass -File Build\scripts\make-dev-cert.ps1
 
 ושים לב: `vue-tsc --noEmit` (ה‑script בשם `type-check`) **עובר** גם כש‑`vue-tsc --build` נכשל. בדיקה לפני בנייה חייבת להריץ `npm run build`, ולא רק `type-check`.
 
-### ז. שני קבצים שאסור לדחוף
+### ז. המתקין לא ימצא את החבילה כשבונים בלי שלב האריזה
+
+הרצת המתקין שנבנה ישירות נכשלת עם `Payload archive not found`. זו **התנהגות מתוכננת ולא תקלה**: `KleiKodesh.pkg` איננו מוטמע בתוך המתקין במכוון (ההערה ב‑`KleiKodeshVstoInstallerWpf.csproj`: הטמעה החזירה את זמן העלייה של החלון ל‑7.6 שניות במקום 0.9). בהפצה אמיתית עוטף NSIS מניח את הקובץ ליד ה‑exe בזמן ריצה.
+
+בבנייה מקומית שלב העטיפה לא רץ, והחבילה נשארת ב‑`Build\Installer\` במקום ליד ה‑exe. לפני הרצת המתקין יש להעתיק אותה — בדיוק מה שהעוטף עושה:
+
+```powershell
+Copy-Item Build\Installer\KleiKodesh.pkg Build\Installer\bin\Debug\net48\ -Force
+```
+
+### ח. שני קבצים שאסור לדחוף
 
 | הקובץ | למה |
 |---|---|
