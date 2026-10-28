@@ -1,18 +1,27 @@
 /**
- * Keyboard shortcuts for the book view.
+ * Keyboard shortcuts for the book view — the half not already handled beside
+ * the title bar's (`useAppTitleBarShortcuts`, which owns the panel and search
+ * toggles because its pane-focus guard was already there).
  *
- * Handles two categories:
- * - Ctrl+±/0: zoom. When focus is inside a scroller, the scroller's own
- *   useZoomHandler takes over (but we still preventDefault to block the browser).
- *   When focus is elsewhere (toolbar, etc.) we zoom both panels together.
- * - Ctrl+Left / Ctrl+Right: section navigation (RTL — Left = next, Right = previous).
- * - Ctrl+D: toggle clean text (the toolbar's eraser button).
- * - Ctrl+Shift+D: create a bookmark at the top line (the toolbar's bookmarks dropdown).
+ * Handles:
+ * - `view.zoomIn` / `view.zoomOut` / `view.zoomReset`: when focus is inside a
+ *   scroller, the scroller's own useZoomHandler takes over (but we still
+ *   preventDefault to block the browser). When focus is elsewhere (toolbar,
+ *   etc.) we zoom both panels together.
+ * - `bookView.nextSection` / `bookView.previousSection`: section navigation
+ *   (RTL — Left = next, Right = previous).
+ * - `bookView.cleanText`: the toolbar's eraser button.
+ * - `bookView.bookmark`: a bookmark at the top line (the toolbar's bookmarks
+ *   dropdown).
+ *
+ * Which keys those are is in `src/shortcuts/shortcutDefinitions.ts`; the guards
+ * below (pane focused, active tab, focus inside a scroller) stay here.
  */
 import { inject } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { useBookViewStore } from '@/stores/bookViewStore'
 import { usePaneNavigation } from '@/composables/usePaneNavigation'
+import { matchShortcut } from '@/shortcuts/matchShortcut'
 
 // Only `$el` is used here (see below) — the scroller API is not part of this
 // composable's contract.
@@ -38,28 +47,36 @@ export function useBookViewKeyboardShortcuts(
     if (bookViewStore.splitViewEnabled && bookViewStore.focusedPaneId !== paneId) return
     // Only respond when the active tab in this pane is a book view.
     if (paneNavigation.activeTab.route !== '/book-view') return
-    const ctrl = event.ctrlKey || event.metaKey
-    if (!ctrl) return
 
-    const isZoomIn = event.code === 'Equal' || event.code === 'NumpadAdd'
-    const isZoomOut = event.code === 'Minus' || event.code === 'NumpadSubtract'
-    const isReset = event.code === 'Digit0' || event.code === 'Numpad0'
-    const isNextSection = event.code === 'ArrowLeft'
-    const isPreviousSection = event.code === 'ArrowRight'
+    // The zoom shortcuts are app-scoped (they mean the same thing on every
+    // page), which is why both scopes are asked for here.
+    const id = matchShortcut(event, 'bookView', 'app')
+    if (id === null) return
 
-    if (event.code === 'KeyD' && !event.shiftKey && !event.altKey) {
-      event.preventDefault()
-      toggleCleanText()
-      return
+    switch (id) {
+      case 'bookView.cleanText':
+        event.preventDefault()
+        toggleCleanText()
+        return
+      case 'bookView.bookmark':
+        event.preventDefault()
+        createBookmark()
+        return
+      case 'bookView.nextSection':
+      case 'bookView.previousSection':
+        if (!hasToc()) return
+        event.preventDefault()
+        navigateToAdjacentTocSection(id === 'bookView.nextSection' ? 'next' : 'previous')
+        return
+      case 'view.zoomIn':
+      case 'view.zoomOut':
+      case 'view.zoomReset':
+        break
+      // Every other shortcut of the book view is handled where its pane-focus
+      // guard already lives — see `useAppTitleBarShortcuts`.
+      default:
+        return
     }
-
-    if (event.code === 'KeyD' && event.shiftKey && !event.altKey) {
-      event.preventDefault()
-      createBookmark()
-      return
-    }
-
-    if (!isZoomIn && !isZoomOut && !isReset && !isNextSection && !isPreviousSection) return
 
     const focused = document.activeElement
     const linesRoot = linesContentRef()?.$el
@@ -72,13 +89,6 @@ export function useBookViewKeyboardShortcuts(
       ((linesRoot != null && linesRoot.contains(focused)) ||
         (focused instanceof Element && focused.closest('[data-commentary-slot]') != null))
 
-    if (isNextSection || isPreviousSection) {
-      if (!hasToc()) return
-      event.preventDefault()
-      navigateToAdjacentTocSection(isNextSection ? 'next' : 'previous')
-      return
-    }
-
     // Prevent the browser from applying its own page zoom regardless of focus.
     event.preventDefault()
 
@@ -88,8 +98,8 @@ export function useBookViewKeyboardShortcuts(
     // Zoom this pane's own tab — the no-arg forms target pane 1's active tab,
     // which is the wrong book when these shortcuts fire in pane 2.
     const tab = paneNavigation.activeTab
-    if (isZoomIn) bookViewStore.zoomIn(tab.id, tab.bookId)
-    else if (isZoomOut) bookViewStore.zoomOut(tab.id, tab.bookId)
+    if (id === 'view.zoomIn') bookViewStore.zoomIn(tab.id, tab.bookId)
+    else if (id === 'view.zoomOut') bookViewStore.zoomOut(tab.id, tab.bookId)
     else bookViewStore.resetZoom(tab.id, tab.bookId)
   })
 }
