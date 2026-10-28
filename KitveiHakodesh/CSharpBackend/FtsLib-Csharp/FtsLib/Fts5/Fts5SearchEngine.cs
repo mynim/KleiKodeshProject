@@ -124,6 +124,9 @@ namespace FtsLib.Fts5
         /// <paramref name="maxTermsPerFragment"/> dictionary terms (a fragment that common
         /// matches most of the book anyway — reading the book is the cheaper answer).
         /// </summary>
+        /// <summary>From this many ranges on, one MATCH over their span beats one per range.</summary>
+        private const int ManyRanges = 16;
+
         public List<(int Range, long Position, int LineId)> FindSubstringCandidates(
             string query, IReadOnlyList<(long First, long Last)> ranges, int maxTermsPerFragment, CancellationToken ct)
         {
@@ -152,8 +155,10 @@ namespace FtsLib.Fts5
             }
             if (groups.Count == 0) return null;
 
-            // One MATCH per range: a rowid range is a seek FTS5 does natively, where an OR of
-            // ranges in one statement would make it read the whole doclist.
+            // A rowid range is a seek FTS5 does natively, but each executed MATCH costs its
+            // planning (~2 ms with a wide term expression). A few ranges: one MATCH each. Many
+            // (a commentary panel's books): ONE MATCH over their whole span, and each row
+            // assigned to its range here, or dropped when it falls between ranges.
             var found = new List<(int, long, int)>();
             using var cmd = _lines.CreateCommand();
             cmd.CommandText = "SELECT line_fts.rowid, p.line_id FROM line_fts JOIN line_position p ON p.position = line_fts.rowid " +
@@ -161,35 +166,41 @@ namespace FtsLib.Fts5
             cmd.Parameters.AddWithValue("$q", BuildMatchExpression(groups));
             var pFirst = cmd.Parameters.Add("$first", SqliteType.Integer);
             var pLast = cmd.Parameters.Add("$last", SqliteType.Integer);
-            for (int range = 0; range < ranges.Count; range++)
+            if (ranges.Count < ManyRanges)
             {
-                pFirst.Value = ranges[range].First;
-                pLast.Value = ranges[range].Last;
-                using var r = cmd.ExecuteReader();
+                for (int range = 0; range < ranges.Count; range++)
+                {
+                    pFirst.Value = ranges[range].First;
+                    pLast.Value = ranges[range].Last;
+                    using var r = cmd.ExecuteReader();
+                    while (r.Read())
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        found.Add((range, r.GetInt64(0), (int)r.GetInt64(1)));
+                    }
+                }
+                return found;
+            }
+            var order = new int[ranges.Count];
+            for (int i = 0; i < order.Length; i++) order[i] = i;
+            Array.Sort(order, (a, b) => ranges[a].First.CompareTo(ranges[b].First));
+            long spanFirst = ranges[order[0]].First, spanLast = 0;
+            foreach (var range in ranges) if (range.Last > spanLast) spanLast = range.Last;
+            pFirst.Value = spanFirst;
+            pLast.Value = spanLast;
+            using (var r = cmd.ExecuteReader())
+            {
+                int cursor = 0;   // rows and ranges both ascend: the cursor only moves forward
                 while (r.Read())
                 {
                     ct.ThrowIfCancellationRequested();
-                    found.Add((range, r.GetInt64(0), (int)r.GetInt64(1)));
+                    long position = r.GetInt64(0);
+                    while (cursor < order.Length && ranges[order[cursor]].Last < position) cursor++;
+                    if (cursor == order.Length) break;
+                    if (ranges[order[cursor]].First <= position) found.Add((order[cursor], position, (int)r.GetInt64(1)));
                 }
             }
             return found;
-        }
-
-        /// <summary>
-        /// The given lines as matches of <paramref name="query"/> — the query parsed and
-        /// expanded, each line's text read, NO full-text MATCH run — for building snippets of
-        /// lines a search already returned (only the rows a page shows). Lines the query no
-        /// longer expands for are simply absent from the result.
-        /// </summary>
-        public List<SearchResult> MatchesForLines(string query, IReadOnlyList<int> lineIds, CancellationToken ct)
-        {
-            var results = new List<SearchResult>(lineIds.Count);
-            var plan = Plan(query, null, ct);
-            if (plan == null || lineIds.Count == 0) return results;
-            var prepared = PreparedQueryGroups.FromGroups(plan.MatchedGroups);
-            using var corpus = _openCorpus();
-            results.AddRange(Fetch(corpus, new List<int>(lineIds), plan, prepared, withPlacement: false, ct));
-            return results;
         }
 
         /// <summary>Matching line ids in the index's order, streamed straight off the FTS5 cursor.</summary>
@@ -216,10 +227,13 @@ namespace FtsLib.Fts5
         /// each result's <see cref="SearchResult.Placement"/> in the content read. False: the
         /// content read fetches the text only (what verification and snippets read), and the
         /// caller reads placement itself later, for the results it keeps.</param>
+        /// <param name="afterPosition">Resume: only lines at index positions strictly after this
+        /// one (0 = from the start). Positions are the result order, so a search resumed after
+        /// its last delivered line continues exactly where it stopped.</param>
         public IEnumerable<SearchResult> Search(string query, int cap = 0,
                                                 IEnumerable<int> filterIds = null, CancellationToken ct = default,
                                                 Action<string> onStage = null, Func<int, int> batchSizeAt = null,
-                                                bool withPlacement = true)
+                                                bool withPlacement = true, long afterPosition = 0)
         {
             var plan = Plan(query, filterIds, ct, onStage);
             if (plan == null) yield break;
@@ -233,7 +247,7 @@ namespace FtsLib.Fts5
                 int batchSize = Math.Max(1, batchSizeAt?.Invoke(batchIndex) ?? DefaultContentBatchSize);
                 var batch = new List<int>(batchSize);
                 int taken = 0;              // cap counts ids
-                foreach (int id in StreamIds(plan, ct))
+                foreach (int id in StreamIds(plan, ct, afterPosition))
                 {
                     batch.Add(id);
                     bool capReached = cap > 0 && ++taken >= cap;
@@ -315,14 +329,17 @@ namespace FtsLib.Fts5
         /// One FTS5 MATCH for the whole query — FTS5 does the AND across groups and the OR
         /// within each — read lazily. Each call has its own command, so streams may overlap.
         /// </summary>
-        IEnumerable<int> StreamIds(QueryPlan plan, CancellationToken ct)
+        IEnumerable<int> StreamIds(QueryPlan plan, CancellationToken ct, long afterPosition = 0)
         {
             using var cmd = _lines.CreateCommand();
             // rowid is the line's position in result order (catalog order); line_position maps
-            // it back to the line id, so the ids come out in that order.
+            // it back to the line id, so the ids come out in that order. A resume is a rowid
+            // bound, which FTS5 seeks natively.
             cmd.CommandText = "SELECT p.line_id FROM line_fts JOIN line_position p ON p.position = line_fts.rowid " +
-                              "WHERE line_fts MATCH $q ORDER BY line_fts.rowid";
+                              "WHERE line_fts MATCH $q" + (afterPosition > 0 ? " AND line_fts.rowid > $after" : "") +
+                              " ORDER BY line_fts.rowid";
             cmd.Parameters.AddWithValue("$q", plan.MatchExpression);
+            if (afterPosition > 0) cmd.Parameters.AddWithValue("$after", afterPosition);
             using var r = cmd.ExecuteReader();
             while (r.Read())
             {
@@ -338,7 +355,7 @@ namespace FtsLib.Fts5
             if (ids.Count == 0) yield break;
             // A corpus may return a batch in its own order (by id); results go out in the
             // index's order, which is the order of ids.
-            // A placed corpus gives each line's book / position / TOC entry in the same read,
+            // A placed corpus gives each line's book / position in the same read,
             // unless the caller reads placement itself (withPlacement: false).
             var byId = new Dictionary<int, (string Content, string Title, FtsDocumentPlacement Placement)>(ids.Count);
             if (withPlacement && corpus is IFtsPlacedCorpus placed)

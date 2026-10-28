@@ -7,7 +7,7 @@ import { useTabStore } from '@/stores/tabStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useBookViewStore } from '@/stores/bookViewStore'
 import { usePaneNavigation } from '@/composables/usePaneNavigation'
-import type { LineItem } from './useBookViewLinesTable'
+import type { LinesTable } from './linesTable'
 import type { TocEntry } from '@/webview-host/queries.types'
 import type { BookViewLinesScrollProps } from './useBookViewLinesScroll'
 import ContextMenu from '@/components/ContextMenu.vue'
@@ -29,6 +29,7 @@ import { useBookViewErrorReport } from '../errorReport/useBookViewErrorReport'
 import { useBookViewAnnotations } from './useBookViewAnnotations'
 import { useBookViewLinesScroll } from './useBookViewLinesScroll'
 import { useBookViewLinesNavigation } from './useBookViewLinesNavigation'
+import { useBookViewLinesBookmarkPoint } from './useBookViewLinesBookmarkPoint'
 import BookViewNoteBubble from './BookViewNoteBubble.vue'
 import BookViewAbbrevTooltip from './BookViewAbbrevTooltip.vue'
 import { useBookViewAbbrevTooltip } from './useBookViewAbbrevTooltip'
@@ -50,6 +51,7 @@ const emit = defineEmits<{
   scrolled: [firstVisible: number, firstFull: number, isUserScroll: boolean]
   lineSelected: [lineId: number, isShiftClick: boolean]
   'ctrl-f': []
+  createBookmark: []
 }>()
 // The scroll-related props come from useBookViewLinesScroll's own interface —
 // never re-declare them here. The hand-copied list diverged once: all of those
@@ -57,7 +59,7 @@ const emit = defineEmits<{
 // dropped the page's binding into $attrs and saves went out empty.
 const props = defineProps<
   BookViewLinesScrollProps & {
-    lines: LineItem[]
+    lines: LinesTable
     /**
      * Bumped on every write to `lines`, which is a shallow store: the row slot reads it
      * so the mounted rows re-render when their text changes in place (a version swap).
@@ -144,7 +146,7 @@ const renderedLineIds = (): number[] => {
   if (!range) return []
   const ids: number[] = []
   for (let index = range.start; index < range.end; index++) {
-    const id = props.lines[index]?.id ?? 0
+    const id = props.lines.idAt(index)
     if (id > 0) ids.push(id)
   }
   return ids
@@ -291,6 +293,7 @@ const { items: contextMenuItems, buildFormattedHtml, onCopy, onPasteIntoWord, on
   onAddNote,
   onCopyLineLink: copyLineLink,
   onReportError: openErrorReport,
+  onCreateBookmark: () => emit('createBookmark'),
   prepareForLines,
   prepareForRenderedHtml,
   resolveWordLinkTarget,
@@ -298,7 +301,7 @@ const { items: contextMenuItems, buildFormattedHtml, onCopy, onPasteIntoWord, on
 })
 useScopedCopy(
   scrollerEl,
-  () => props.lines.map((line) => line.content).filter(Boolean) as string[],
+  () => { const texts: string[] = []; props.lines.forEachLoaded((line) => { if (line.content) texts.push(line.content) }); return texts },
   isSelectAll,
   buildFormattedHtml,
 )
@@ -342,7 +345,7 @@ const {
   },
 })
 
-const { scrollToLine, scrollToLineId } = useBookViewLinesNavigation(
+const { scrollToLine, scrollToLineId, lineIndexForId, currentScrollGeneration } = useBookViewLinesNavigation(
   scroller,
   () => props.lines,
   () => props.searchBarVisible ?? false,
@@ -350,10 +353,19 @@ const { scrollToLine, scrollToLineId } = useBookViewLinesNavigation(
   cancelRestore,
 )
 
+const { readBookmarkPoint, scrollToBookmarkPoint } = useBookViewLinesBookmarkPoint(
+  scroller,
+  () => props.searchBarVisible ?? false,
+  scrollToLine,
+  lineIndexForId,
+  currentScrollGeneration,
+  suppressPositionSave,
+)
+
 /** Whether the row at `index` has its text — read in the row slot, with the lines revision so a text change under the same index re-renders the row. */
 function rowHasText(index: number): boolean {
   void props.linesRevision
-  return props.lines[index]?.content != null
+  return props.lines.hasText(index)
 }
 
 function onLineClick(index: number, event: MouseEvent) {
@@ -361,7 +373,7 @@ function onLineClick(index: number, event: MouseEvent) {
   // the commentary line — the user only wants to select text. A plain click leaves
   // the selection collapsed; a drag-select leaves real (non-empty) text selected.
   if (hasActiveTextSelection()) return
-  const line = props.lines[index]
+  const line = props.lines.at(index)
   if (props.commentaryVisible && line) emit('lineSelected', line.id, event.ctrlKey || event.metaKey)
 }
 
@@ -376,17 +388,13 @@ const multiSelectLineIdSet = computed(() =>
 function isInActiveSection(lineIndex: number): boolean {
   const set = selectedSectionLineIdSet.value
   if (!set) return false
-  const line = props.lines[lineIndex]
-  if (!line) return false
-  return set.has(line.id)
+  return set.has(props.lines.idAt(lineIndex))
 }
 
 function isMultiSelected(lineIndex: number): boolean {
   const set = multiSelectLineIdSet.value
   if (!set) return false
-  const line = props.lines[lineIndex]
-  if (!line) return false
-  return set.has(line.id)
+  return set.has(props.lines.idAt(lineIndex))
 }
 
 function focusScroller() {
@@ -450,7 +458,7 @@ function onLinesTextEvicted(lineIds: number[]) {
   evictWordLinkAnchorsForLines(lineIds)
 }
 
-defineExpose({ pasteAllIntoWord, scrollToLine, scrollToLineId, focusScroller, captureScrollPos, readCurrentPosition, retainedLineRanges, onLinesTextEvicted })
+defineExpose({ pasteAllIntoWord, scrollToLine, scrollToLineId, readBookmarkPoint, scrollToBookmarkPoint, focusScroller, captureScrollPos, readCurrentPosition, retainedLineRanges, onLinesTextEvicted })
 </script>
 
 <template>
@@ -526,12 +534,12 @@ defineExpose({ pasteAllIntoWord, scrollToLine, scrollToLineId, focusScroller, ca
           v-if="rowHasText(index)"
           class="line"
           :class="{
-            selected: props.commentaryVisible && !multiSelectLineIdSet && selectedLineId === lines[index]?.id,
+            selected: props.commentaryVisible && !multiSelectLineIdSet && selectedLineId === lines.idAt(index),
             'toc-section': props.commentaryVisible && !multiSelectLineIdSet && isInActiveSection(index),
             'multi-selected': props.commentaryVisible && isMultiSelected(index),
           }"
           :data-alt-toc="props.altTocLabelMap?.get(index)"
-          v-html="lineContent(lines[index]!.content!, index, lines[index]!.id)"
+          v-html="lineContent(lines.contentAt(index)!, index, lines.idAt(index))"
           @click="onLineClick(index, $event)"
         />
       </template>

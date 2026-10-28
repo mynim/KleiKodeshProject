@@ -6,7 +6,7 @@
  * service's loopback HTTP host; in the hosted app it is the C# relay in front of the service's
  * named pipe. Aborting the stream is the cancel signal, and the service itself supersedes the
  * previous search when a new one starts. Hits are NUMBERS ONLY (see FullTextSearchResult):
- * book id + TOC entry id, a snippet descriptor, and ids into the search's matched-term
+ * book id, a snippet descriptor, and ids into the search's matched-term
  * table, which streams once per search (`newTerms` per frame) and is resolved here
  * (matchedTermsOf, from the term id of each snippet mark). Titles, TOC paths and snippet
  * HTML are built per rendered row.
@@ -16,11 +16,13 @@ import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { serviceStream } from '@/webview-host/serviceClient'
 import { useSearchCacheStore } from '@/stores/searchCacheStore'
+import type { SearchCacheEntry } from '@/stores/searchCacheStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useBooksDataStore } from '@/stores/booksDataStore'
 import { chronologicalKey } from './chronology'
-import { seedLineTexts, setSnippetSource } from './fullTextSearchSnippets'
-import { matchedTermIdsOf } from './fullTextSearchTypes'
+import { seedSnippetTexts, setSnippetContextWords } from './fullTextSearchSnippets'
+import type { FtsSnippetText } from '@/webview-host/seforimApi'
+import { SNIPPET_MARK_STRIDE, matchedTermIdsOf } from './fullTextSearchTypes'
 import { WORD_OPTIONS, applyWordOptions } from './queryWordSyntax'
 import type { AllWords, PerWord, WordOption } from './queryWordSyntax'
 import type { FullTextSearchResult, SearchFailReason, FullTextSearchSortOrder } from './fullTextSearchTypes'
@@ -38,10 +40,13 @@ interface SearchStreamChunk {
   /** Matched-term strings first seen in this frame, in id order — appended to the
    *  search's term table, which the hits' mark term ids index into. */
   newTerms?: string[]
-  /** Snippet line texts (line id -> text) for the search's first hits, riding on the frame
-   *  (not on the hits): seeded into the snippet cache so the first screen paints without a
-   *  fetch. Later frames carry none. Int map keys arrive as strings from MessagePack. */
-  lineTexts?: Record<string, string>
+  /** First frame of a resumed search whose resume line could not be placed: the service
+   *  runs it from the start, so the hits already held are dropped. */
+  restarted?: boolean
+  /** Snippet texts for the search's first hits, riding on the frame (not on the hits):
+   *  seeded into the snippet cache so the first screen paints without a fetch. Later frames
+   *  carry none. */
+  snippetTexts?: FtsSnippetText[]
   done: boolean
   error?: string
   /** What the engine is doing right now (stable ASCII key). A frame of its own before the
@@ -60,7 +65,8 @@ export const SEARCH_STAGE_LABELS: Record<string, string> = {
   enrich: t('fullTextSearch.stage.enrich'),
 }
 
-export function useFullTextSearch(isIndexing?: () => boolean) {
+/** `pinOwner` (workspace:tab) pins the entry this tab shows, so the cache budget never evicts it. */
+export function useFullTextSearch(isIndexing?: () => boolean, pinOwner?: string) {
   const cache = useSearchCacheStore()
   const settings = useSettingsStore()
   const booksStore = useBooksDataStore()
@@ -106,7 +112,7 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
       // Results stream in catalog order since the FTS5 index; entries cached before that are
       // in line-id order (and from the old index), so they must not match.
       'catalog',
-      // Hits are numbers only (snippet descriptor, tocEntryId) since the on-demand
+      // Hits are numbers only (snippet descriptor) since the on-demand
       // snippets/references. Entries cached in the earlier shapes (snippet HTML, or the
       // descriptor with per-hit strings) must not match — they are discarded by LRU
       // eviction, never migrated.
@@ -114,6 +120,12 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
       // Marks are (start, length, termId) triples and the hit's matched term ids are read
       // off them (no per-hit termIds field any more; stride-2 entries would render wrong).
       'mk3t',
+      // Hits carry no tocEntryId (the row's TOC path is fetched by line id), and every hit
+      // carries its descriptor over the matched line alone (no snippetLineIds, short flag).
+      'notoc',
+      'desc1',
+      // Packed chunks addressed by a numeric id (searchCacheStore); older metas have none.
+      'pk1',
     ]
       .filter(Boolean)
       .join('|')
@@ -132,23 +144,6 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
   const resultCount = computed(() => { resultsVersion.value; return results.value.length })
   /** The current result set's matched-term table (the hits' mark term ids index into it). */
   let searchTerms: string[] = []
-  /** The search's id for a matched term — appended when a snippet fetched later brings a new one. */
-  function termIdOf(term: string): number {
-    const known = searchTerms.indexOf(term)
-    if (known >= 0) return known
-    searchTerms.push(term)
-    return searchTerms.length - 1
-  }
-
-  /** Tells the snippet loader which search (query as sent, options) later rows' snippets belong to. */
-  function publishSnippetSource(queryToSend: string) {
-    setSnippetSource({
-      query: queryToSend,
-      requireOrdered: settings.searchRequireOrdered,
-      contextWords: settings.searchContextMarginWords,
-      termIdOf,
-    })
-  }
 
   /** The concrete index terms that matched a hit — what the book view highlights. */
   function matchedTermsOf(hit: FullTextSearchResult): string[] {
@@ -329,42 +324,63 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
     clearStageLabel()
   }
 
-  async function executeSearch(q: string) {
+  /**
+   * Runs the search for `q`, saving every streamed batch to the IndexedDB cache as it
+   * arrives. With `resumeFrom` (an unfinished cached run of the same search) the cached hits
+   * are the start of the result set and the stream continues after the last of them —
+   * nothing already received is fetched again.
+   */
+  async function executeSearch(q: string, resumeFrom?: SearchCacheEntry) {
     if (!q.trim()) return
     await cancelSearch()
+    rerunWhenIndexed = null
 
     isSearching.value = true
     hasSearched.value = true
     // The stream's accumulator IS the published array: hits are pushed into it in place
-    // and each flush only bumps the version. Published now, empty, so the first flush is
-    // already an append (same identity) and not a rebuild.
-    const acc: FullTextSearchResult[] = []
+    // and each flush only bumps the version. Published now (empty, or the resumed hits),
+    // so the first flush is already an append (same identity) and not a rebuild.
+    const acc: FullTextSearchResult[] = resumeFrom ? resumeFrom.results : []
     results.value = acc
     resultsVersion.value++
     streamedOrder = acc
-    searchTerms = []
+    searchTerms = resumeFrom ? resumeFrom.terms : []
     sortOrder.value = 'catalogOrder'   // each new search starts in streamed order; user re-sorts after
     searchError.value = null
     executedQuery.value = q
 
     const normalizedQuery = q.trim().toLowerCase()
     const cacheKey = _buildCacheKey(normalizedQuery)
-    publishSnippetSource(_buildQueryToSend(normalizedQuery))
-    // The IndexedDB cache serves session restore and tab switching (see loadCachedResults),
-    // never a user-initiated search. Only a search run against a fully built index is
-    // cached — partial results from a mid-build search would be served as complete and stale.
-    const cacheable = !isIndexing?.()
-    if (cacheable) await cache.init(cacheKey, q, false).catch(() => {/* best-effort */})
+    if (pinOwner) await cache.pin(pinOwner, cacheKey).catch(() => {/* non-fatal */})
+    setSnippetContextWords(settings.searchContextMarginWords)
+    // Every run is cached, batch by batch. One run while the index is still building is
+    // marked so: a later visit shows it, then runs it again once the index is ready.
+    const indexingComplete = !isIndexing?.()
+    let terms = searchTerms
+    const resumeAfter = resumeFrom ? acc[acc.length - 1]?.lineId ?? 0 : 0
+    const resumed = resumeAfter > 0 && await cache.resume(cacheKey, terms).catch(() => false)
+    if (executedQuery.value !== q) return // superseded while the cache answered
+    if (!resumed && acc.length) {
+      // Nothing to continue (the entry went meanwhile): start over, or every hit would show twice.
+      acc.length = 0
+      terms = searchTerms = []
+      resultsVersion.value++
+    }
+    if (!resumed) await cache.init(cacheKey, q, indexingComplete, terms).catch(() => {/* best-effort */})
+    if (executedQuery.value !== q) return // superseded while the cache answered
 
     const abort = new AbortController()
     _streamAbort = abort
+    // A resumed stream numbers its matched terms from 0 again: each frame's new terms are
+    // mapped onto this search's table, and the hits' mark term ids rewritten to match.
+    const streamTermToLocal: number[] = []
     try {
-      const terms = searchTerms
       const stream = serviceStream<SearchStreamChunk>('ftsSearchStream', {
         query: _buildQueryToSend(normalizedQuery),
         maxWordDistance: settings.searchMaxWordDistance,
         requireOrdered: settings.searchRequireOrdered,
         contextWords: settings.searchContextMarginWords,
+        resumeAfterLineId: resumed ? resumeAfter : 0,
       }, abort.signal)
 
       // Publish the pushed hits every FLUSH_INTERVAL_MS: the array is already the one
@@ -380,9 +396,23 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
 
       for await (const chunk of stream) {
         if (executedQuery.value !== q) { abort.abort(); return } // superseded locally
+        if (chunk.restarted && acc.length) {
+          // The resume line could not be placed (the library changed): the service runs the
+          // search from the start, so the cached hits go.
+          acc.length = 0
+          terms = searchTerms = []
+          flush()
+          await cache.init(cacheKey, q, indexingComplete, terms).catch(() => {/* best-effort */})
+          if (executedQuery.value !== q) { abort.abort(); return } // superseded meanwhile
+        }
         if (chunk.stage) enterStage(chunk.stage)
-        if (chunk.newTerms?.length) for (const t of chunk.newTerms) terms.push(t)
-        seedLineTexts(chunk.lineTexts) // before the hits reach the list: its first render finds them
+        if (chunk.newTerms?.length) {
+          for (const term of chunk.newTerms) {
+            const known = terms.indexOf(term)
+            streamTermToLocal.push(known >= 0 ? known : terms.push(term) - 1)
+          }
+        }
+        seedSnippetTexts(chunk.snippetTexts) // before the hits reach the list: its first render finds them
         if (chunk.ready === false) {
           searchError.value = 'indexNotReady'
           return
@@ -390,17 +420,18 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
         const hits = chunk.results ?? []
         if (hits.length) {
           enterResultsStage()
+          if (resumed) for (const hit of hits) remapMarkTerms(hit, streamTermToLocal)
           for (const c of hits) acc.push(c) // spread-push would overflow on very large chunks
           dirty = true
           if (performance.now() - lastFlushAt >= FLUSH_INTERVAL_MS) flush()
-          if (cacheable) cache.appendBatch(cacheKey, hits) // buffered, never awaited: the cache keeps its own ordered write chain
+          cache.appendBatch(cacheKey, hits) // buffered, never awaited: the cache keeps its own ordered write chain
         }
         if (executedQuery.value !== q) { abort.abort(); return } // superseded while caching
         if (chunk.error) {
           if (dirty) flush() // surface whatever streamed before the error
           if (!acc.length) searchError.value = 'searchFailed'
-          // The stream did not complete: whatever was appended is an incomplete snapshot.
-          if (cacheable) cache.remove(cacheKey).catch(() => {/* non-fatal */})
+          // Keep what arrived: a later visit resumes after it.
+          cache.flush(cacheKey)
           break
         }
         if (chunk.done) {
@@ -409,7 +440,7 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
           // Done here rather than in `finally` so it runs only on genuine completion,
           // not when the loop exits early via supersession/error.
           await finalizeSort()
-          if (cacheable) await cache.markComplete(cacheKey, false, terms).catch(() => {/* non-fatal */})
+          await cache.markComplete(cacheKey).catch(() => {/* non-fatal */})
           break
         }
       }
@@ -420,16 +451,26 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
       // An aborted stream is a cancel (new search / navigation), not a failure.
       if (!abort.signal.aborted) {
         console.error('[useFullTextSearch] FTS stream failed:', err)
-        searchError.value = 'searchFailed'
-        if (cacheable) cache.remove(cacheKey).catch(() => {/* non-fatal */})
+        if (!acc.length) searchError.value = 'searchFailed'
       }
     } finally {
+      // Whatever arrived and is still buffered is written, so the next visit resumes after it.
+      cache.flush(cacheKey)
       if (_streamAbort === abort) _streamAbort = null
       if (executedQuery.value === q) {
         isSearching.value = false
         currentStage.value = null
         clearStageLabel()
       }
+    }
+  }
+
+  /** Rewrites a resumed hit's mark term ids (stream-local) onto the search's table. */
+  function remapMarkTerms(hit: FullTextSearchResult, streamTermToLocal: number[]) {
+    const marks = hit.snippetMarks
+    if (!marks) return
+    for (let i = SNIPPET_MARK_STRIDE - 1; i < marks.length; i += SNIPPET_MARK_STRIDE) {
+      marks[i] = streamTermToLocal[marks[i]!] ?? marks[i]!
     }
   }
 
@@ -441,6 +482,7 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
     hasSearched.value = false
     executedQuery.value = ''
     searchError.value = null
+    rerunWhenIndexed = null
   }
 
   function clearCachedResults(q: string): void {
@@ -448,28 +490,49 @@ export function useFullTextSearch(isIndexing?: () => boolean) {
     cache.remove(_buildCacheKey(normalizedQuery)).catch(() => {/* non-fatal */})
   }
 
+  /** A search shown from a cache entry made while the index was building: run again, from
+   *  the start, the moment the index is ready. */
+  let rerunWhenIndexed: string | null = null
+  watch(
+    () => isIndexing?.() ?? false,
+    (indexing, wasIndexing) => {
+      if (wasIndexing && !indexing && rerunWhenIndexed && rerunWhenIndexed === executedQuery.value) {
+        const q = rerunWhenIndexed
+        rerunWhenIndexed = null
+        executeSearch(q).catch((err) => console.error('[useFullTextSearch] re-run after indexing failed:', err))
+      }
+    },
+  )
+
   /**
-   * Session restore / tab switch: show the cached result set when one exists. A cache
-   * entry that never completed cannot be resumed mid-stream (the service streams a whole
-   * search or nothing), so it is re-run from the start instead.
+   * Session restore / tab switch: show the cached hits AT ONCE — finished or not — and then
+   * bring them up to date:
+   *  - run while the index was building: run again from the start once it is ready (now,
+   *    or when the build finishes);
+   *  - unfinished: resume the stream after the last cached hit;
+   *  - finished on a built index: nothing more to do.
+   * False when there is nothing cached (the caller searches).
    */
   async function loadCachedResults(q: string): Promise<boolean> {
-    if (isIndexing?.()) return false
     const normalizedQuery = q.trim().toLowerCase()
     const cacheKey = _buildCacheKey(normalizedQuery)
-    const cached = await cache.get(cacheKey, q)
-    if (!cached || cached.results.length === 0) return false
-    if (!cached.complete) {
-      executeSearch(q).catch((err) => console.error('[useFullTextSearch] re-run after tab restore failed:', err))
-      return true
-    }
+    if (pinOwner) await cache.pin(pinOwner, cacheKey).catch(() => {/* non-fatal */})
+    const cached = await cache.get(cacheKey, q).catch(() => null)
+    if (!cached || (cached.results.length === 0 && cached.complete === false)) return false
     results.value = cached.results
     resultsVersion.value++
     streamedOrder = cached.results   // cached in the order it streamed
     searchTerms = cached.terms
-    publishSnippetSource(_buildQueryToSend(normalizedQuery))
+    setSnippetContextWords(settings.searchContextMarginWords)
     executedQuery.value = q
     hasSearched.value = true
+    searchError.value = null
+    if (!cached.indexingComplete) {
+      if (isIndexing?.()) rerunWhenIndexed = q
+      else executeSearch(q).catch((err) => console.error('[useFullTextSearch] re-run of a mid-build search failed:', err))
+    } else if (!cached.complete) {
+      executeSearch(q, cached).catch((err) => console.error('[useFullTextSearch] resume after tab restore failed:', err))
+    }
     return true
   }
 
