@@ -39,6 +39,7 @@ that, and no test would notice. So nothing here listens for anything.
 | `chordAssignment.ts` | Whether a combination can be assigned at all — the browser's own keys, and the ones that would fire while the reader is typing. Pure. |
 | `shortcutBindings.ts` | The defaults with the reader's changes laid over them, and what collided. Pure. |
 | `shortcutSettings.ts` | The reader's changes: held, persisted, reset. The one place that touches the disk. |
+| `shortcutHint.ts` | A shortcut's keys for the buttons that name them (`בית (Ctrl+G)`). Those used to be part of the sentence in the locale file, which a reader moving the key would have turned into a lie. |
 | `useShortcutCapture.ts` | Catching the combination they press, for one row of the settings list. |
 | `matchShortcut.ts` | What the handlers call. Reads the host flag, builds the index once, answers with an id. |
 | `shortcutRows.ts` | The settings list as a pure function of the host and the window width. |

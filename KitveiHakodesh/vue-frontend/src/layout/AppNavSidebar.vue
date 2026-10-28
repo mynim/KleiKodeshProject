@@ -17,6 +17,7 @@ import { useBookViewStore } from '@/stores/bookViewStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { togglePopOut } from '@/webview-host/bridge'
 import { useI18n } from 'vue-i18n'
+import { withShortcut } from '@/shortcuts/shortcutHint'
 
 const { t } = useI18n()
 
@@ -183,7 +184,7 @@ ${updateItem.text}` : t('layout.moreItems')"
       <button
         class="nav-btn nav-btn-sm"
         tabindex="-1"
-        :title="t('layout.hideSidebar')"
+        :title="withShortcut(t('layout.hideSidebar'), 'nav.sidebar')"
         @click="settingsStore.setNavSidebarVisible(paneId, false)"
       >
         <IconChevronDoubleRight20Regular />

@@ -28,6 +28,7 @@ import WorkspaceSubmenu from './WorkspaceSubmenu.vue'
 import AppTitleBarBreadcrumbChevronDropdown from './AppTitleBarBreadcrumbChevronDropdown.vue'
 import { useAppTitleBarTocBreadcrumb } from './useAppTitleBarTocBreadcrumb'
 import { useAppTitleBarShortcuts } from './useAppTitleBarShortcuts'
+import { withShortcut } from '@/shortcuts/shortcutHint'
 import { useSplitViewAvailable } from './useSplitViewAvailable'
 import { useBookViewStore } from '@/stores/bookViewStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -121,13 +122,13 @@ const isOcrAvailable = computed(() =>
 
 // A click always enters search mode; the address-bar dropdown lists recent
 // locations (shown while the field is empty / has no results) — not open tabs.
-const barTitleHint = t('layout.barTitleHint')
+const barTitleHint = computed(() => withShortcut(t('layout.barTitleHint'), 'nav.addressBar'))
 
 const barTitle = computed(() => {
   const full = activeTab.value?.tocPath
     ? activeTabTitle.value + ' · ' + activeTab.value.tocPath
     : activeTabTitle.value
-  return full ? full + '\n' + barTitleHint : barTitleHint
+  return full ? full + '\n' + barTitleHint.value : barTitleHint.value
 })
 
 const toolbarTitle = computed(() => {
@@ -318,8 +319,8 @@ useAppTitleBarShortcuts({
           :class="{ 'bar-btn--dot': updateItem }"
           :style="updateItem ? { '--update-color': updateItem.color } : undefined"
           tabindex="-1"
-          :title="updateItem ? `${t('layout.menu')}
-${updateItem.text}` : t('layout.menu')"
+          :title="updateItem ? `${withShortcut(t('layout.menu'), 'nav.menu')}
+${updateItem.text}` : withShortcut(t('layout.menu'), 'nav.menu')"
           @click.stop="toggleNavDropdown"
         >
           <IconLineHorizontal320Regular />
@@ -344,7 +345,7 @@ ${updateItem.text}` : t('layout.menu')"
         direction="forward"
         key="history-forward"
       />
-      <button v-if="isTitleBarButtonVisible('home')" class="bar-btn" tabindex="-1" :title="t('layout.home')" @click.stop="pane.goHome()"><IconHome20Regular /></button>
+      <button v-if="isTitleBarButtonVisible('home')" class="bar-btn" tabindex="-1" :title="withShortcut(t('layout.home'), 'nav.home')" @click.stop="pane.goHome()"><IconHome20Regular /></button>
     </div>
 
     <!-- Search mode — the title turns into an editable address-bar search. -->
@@ -397,7 +398,7 @@ ${updateItem.text}` : t('layout.menu')"
         class="bar-btn"
         :class="{ active: workspacesOpen }"
         tabindex="-1"
-        :title="t('layout.workspaces')"
+        :title="withShortcut(t('layout.workspaces'), 'nav.workspaces')"
         :aria-expanded="workspacesOpen"
         @click.stop="workspacesSubmenu?.toggle()"
       >
@@ -407,7 +408,7 @@ ${updateItem.text}` : t('layout.menu')"
         v-if="isTitleBarButtonVisible('split-view') && isSplitViewAvailable && !settingsStore.getNavSidebarVisible(props.paneId)"
         class="bar-btn"
         tabindex="-1"
-        :title="`${bookViewStore.splitViewEnabled ? t('layout.closeSplitView') : t('layout.openSplitView')} (Ctrl+|)`"
+        :title="withShortcut(bookViewStore.splitViewEnabled ? t('layout.closeSplitView') : t('layout.openSplitView'), 'view.splitView')"
         @click.stop="bookViewStore.toggleSplitView()"
       >
         <IconSplitVertical20Filled v-if="bookViewStore.splitViewEnabled" />
@@ -418,7 +419,7 @@ ${updateItem.text}` : t('layout.menu')"
         v-if="isTxtViewActive"
         class="bar-btn"
         tabindex="-1"
-        :title="t('layout.findInText')"
+        :title="withShortcut(t('layout.findInText'), 'bookView.search')"
         @click.stop="bookViewStore.txtViewToggleSearch(props.paneId)"
       >
         <IconSearch24Regular />

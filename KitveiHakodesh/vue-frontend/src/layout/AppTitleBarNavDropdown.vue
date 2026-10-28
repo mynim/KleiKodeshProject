@@ -10,6 +10,7 @@ import {
 import { APP_NAV_ITEMS, APP_NAV_SETTINGS_ITEM } from './appNavItems'
 import { useAppNavUpdateItem } from './appNavUpdateItem'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { withShortcut } from '@/shortcuts/shortcutHint'
 import { useAppNavigation } from '@/composables/useAppNavigation'
 import { showPopOutButton } from '@/webview-host/bridge'
 import { togglePopOut } from '@/webview-host/bridge'
@@ -162,7 +163,7 @@ ${APP_NAV_SETTINGS_ITEM.description}`"
       class="nav-row"
       :class="{ 'nav-row--focused': focusedIndex === menuRowIndex('navSidebar') }"
       data-nav-item
-      :title="$t('layout.showSidebar')"
+      :title="withShortcut($t('layout.showSidebar'), 'nav.sidebar')"
       @click="onShowNavSidebar"
     >
       <span class="nav-icon"><IconChevronDoubleLeft20Regular /></span>

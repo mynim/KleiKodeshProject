@@ -43,6 +43,7 @@ import type { CommentaryGroup } from './commentary/useCommentary'
 import type { LinesTable } from './lines/linesTable'
 import type { BookVersionRow, HebrewBooksEdition } from '@/webview-host/queries.types'
 import { useI18n } from 'vue-i18n'
+import { withShortcut } from '@/shortcuts/shortcutHint'
 
 const { t } = useI18n()
 
@@ -211,20 +212,20 @@ const zoomInTitle = computed(
 // two side panels are named by their edge, not just "בצד".
 const bottomCommentaryTitle = computed(() =>
   props.bottomCommentaryVisible
-    ? t('bookView.toolbar.close_bottom')
-    : t('bookView.toolbar.open_bottom'),
+    ? withShortcut(t('bookView.toolbar.close_bottom'), 'bookView.commentaryBottom')
+    : withShortcut(t('bookView.toolbar.open_bottom'), 'bookView.commentaryBottom'),
 )
 
 const sideCommentaryTitle = computed(() =>
   props.sideCommentaryVisible
-    ? t('bookView.toolbar.close_right')
-    : t('bookView.toolbar.open_right'),
+    ? withShortcut(t('bookView.toolbar.close_right'), 'bookView.commentaryRight')
+    : withShortcut(t('bookView.toolbar.open_right'), 'bookView.commentaryRight'),
 )
 
 const sideLeftCommentaryTitle = computed(() =>
   props.sideLeftCommentaryVisible
-    ? t('bookView.toolbar.close_left')
-    : t('bookView.toolbar.open_left'),
+    ? withShortcut(t('bookView.toolbar.close_left'), 'bookView.commentaryLeft')
+    : withShortcut(t('bookView.toolbar.open_left'), 'bookView.commentaryLeft'),
 )
 
 // ── Overflow ───────────────────────────────────────────────────────────────────
@@ -323,7 +324,7 @@ defineExpose({ tocBtnRef, createBookmark })
       v-bind="collapseAttrs('toc')"
       :class="{ active: tocVisible }"
       :disabled="!hasToc"
-      :title="$t('bookView.toolbar.toc')"
+      :title="withShortcut($t('bookView.toolbar.toc'), 'bookView.toc')"
       @click="$emit('toggleToc')"
     >
       <IconTreeRtl />
@@ -331,7 +332,7 @@ defineExpose({ tocBtnRef, createBookmark })
     <button
       v-bind="collapseAttrs('section-nav')"
       :disabled="!hasToc"
-      :title="$t('bookView.toolbar.prevSection')"
+      :title="withShortcut($t('bookView.toolbar.prevSection'), 'bookView.previousSection')"
       @click="$emit('navigateToPreviousSection')"
     >
       <IconChevronRight20Regular class="dir-icon" />
@@ -339,7 +340,7 @@ defineExpose({ tocBtnRef, createBookmark })
     <button
       v-bind="collapseAttrs('section-nav')"
       :disabled="!hasToc"
-      :title="$t('bookView.toolbar.nextSection')"
+      :title="withShortcut($t('bookView.toolbar.nextSection'), 'bookView.nextSection')"
       @click="$emit('navigateToNextSection')"
     >
       <IconChevronLeft20Regular class="dir-icon" />
@@ -448,7 +449,7 @@ defineExpose({ tocBtnRef, createBookmark })
     <button
       v-bind="collapseAttrs('search')"
       :class="{ active: searchVisible }"
-      :title="$t('bookView.toolbar.search')"
+      :title="withShortcut($t('bookView.toolbar.search'), 'bookView.search')"
       @click="$emit('toggleSearch')"
     >
       <IconSearch20Regular />
@@ -674,7 +675,7 @@ defineExpose({ tocBtnRef, createBookmark })
         @click="overflowOpen = false; $emit('toggleSearch')"
       >
         <IconSearch20Regular />
-        <span>{{ $t('bookView.toolbar.search') }}</span>
+        <span>{{ withShortcut($t('bookView.toolbar.search'), 'bookView.search') }}</span>
       </button>
       <template v-if="isOverflowed('section-nav')">
         <button
@@ -684,7 +685,7 @@ defineExpose({ tocBtnRef, createBookmark })
           @click="$emit('navigateToPreviousSection')"
         >
           <IconChevronRight20Regular class="dir-icon" />
-          <span>{{ $t('bookView.toolbar.prevSection') }}</span>
+          <span>{{ withShortcut($t('bookView.toolbar.prevSection'), 'bookView.previousSection') }}</span>
         </button>
         <button
           role="menuitem"
@@ -693,7 +694,7 @@ defineExpose({ tocBtnRef, createBookmark })
           @click="$emit('navigateToNextSection')"
         >
           <IconChevronLeft20Regular class="dir-icon" />
-          <span>{{ $t('bookView.toolbar.nextSection') }}</span>
+          <span>{{ withShortcut($t('bookView.toolbar.nextSection'), 'bookView.nextSection') }}</span>
         </button>
       </template>
       <button
@@ -705,7 +706,7 @@ defineExpose({ tocBtnRef, createBookmark })
         @click="overflowOpen = false; $emit('toggleToc')"
       >
         <IconTreeRtl />
-        <span>{{ $t('bookView.toolbar.toc') }}</span>
+        <span>{{ withShortcut($t('bookView.toolbar.toc'), 'bookView.toc') }}</span>
       </button>
     </BookViewToolbarOverflowMenu>
   </div>
