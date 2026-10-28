@@ -8,6 +8,7 @@ import { useTabStore } from './stores/tabStore'
 import { useBookViewStore } from './stores/bookViewStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useThemeStore } from './theme/themeStore'
+import { initShortcutSettings } from './shortcuts/shortcutSettings'
 import { initPdfThemeObserver } from './theme/themes'
 import { dbReady, hasHostBridge, probeDbReady } from './webview-host/seforimDb'
 import { initTabMirror } from './webview-host/tabMirror'
@@ -45,6 +46,9 @@ useSettingsStore().init()
 useBookViewStore().init()
 useThemeStore().init()
 useTabStore().init()
+// The reader's own key combinations, before the first handler can be asked
+// about one. Not a store: see shortcuts/shortcutSettings.ts.
+initShortcutSettings()
 
 // Mirror the tab store to the native chrome tab strip (no-op in dev / VSTO).
 initTabMirror()

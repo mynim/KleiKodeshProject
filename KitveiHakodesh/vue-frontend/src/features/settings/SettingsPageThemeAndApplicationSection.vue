@@ -9,6 +9,7 @@ import ToggleGroup from './ToggleGroup.vue'
 import ThemePicker from './ThemePicker.vue'
 import ThemeBackgroundTintSlider from './ThemeBackgroundTintSlider.vue'
 import { useI18n } from 'vue-i18n'
+import { withShortcut } from '@/shortcuts/shortcutHint'
 import UiLanguageToggle from './UiLanguageToggle.vue'
 
 const { t } = useI18n()
@@ -65,7 +66,7 @@ function toggleTitleBarButton(buttonId: string) {
 
     <ThemeBackgroundTintSlider id="nav-background-tint" :data-nav-label="$t('settings.theme.tintNav')" />
 
-    <SettingRow id="nav-dark-mode" :data-nav-label="$t('settings.theme.darkMode')" :label="$t('settings.theme.darkMode')" :hint="$t('settings.theme.darkModeHint')">
+    <SettingRow id="nav-dark-mode" :data-nav-label="$t('settings.theme.darkMode')" :label="$t('settings.theme.darkMode')" :hint="withShortcut($t('settings.theme.darkModeHint'), 'theme.toggle')">
       <ToggleGroup
         :model-value="isDarkMode"
         :options="[
@@ -87,7 +88,7 @@ function toggleTitleBarButton(buttonId: string) {
       />
     </SettingRow>
 
-    <SettingRow id="nav-scrollbars-hidden" :data-nav-label="$t('settings.theme.hideScrollbars')" :label="$t('settings.theme.hideScrollbars')" :hint="$t('settings.theme.hideScrollbarsHint')">
+    <SettingRow id="nav-scrollbars-hidden" :data-nav-label="$t('settings.theme.hideScrollbars')" :label="$t('settings.theme.hideScrollbars')" :hint="withShortcut($t('settings.theme.hideScrollbarsHint'), 'view.scrollbars')">
       <ToggleGroup
         v-model="scrollbarsHidden"
         :options="[

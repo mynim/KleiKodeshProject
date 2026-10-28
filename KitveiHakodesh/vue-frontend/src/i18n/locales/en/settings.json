@@ -16,14 +16,14 @@
     "pickerHint": "The app interface colors",
     "tintNav": "Background tint strength",
     "darkMode": "Dark mode",
-    "darkModeHint": "Switch between light and dark mode (Ctrl+L)",
+    "darkModeHint": "Switch between light and dark mode",
     "light": "Light",
     "dark": "Dark",
     "pdfNav": "Apply to PDF pages",
     "pdf": "Apply theme to PDF pages",
     "pdfHint": "Applies the theme colors to PDF page content",
     "hideScrollbars": "Hide scrollbars",
-    "hideScrollbarsHint": "Scrollbars are hidden and appear only while scrolling (Ctrl+Shift+H)",
+    "hideScrollbarsHint": "Scrollbars are hidden and appear only while scrolling",
     "zoom": "Display size",
     "zoomHint": "Changes the size of the whole app interface"
   },
@@ -91,6 +91,26 @@
     "clear": "Clear path"
   },
   "shortcuts": {
+    "changeHint": "Click to change the combination",
+    "pressKeys": "Press a combination…",
+    "captureHelp": "Backspace clears the key, Esc cancels",
+    "noKey": "No key",
+    "resetOne": "Reset to default",
+    "resetAll": "Reset every shortcut to its default",
+    "taken": "That combination is taken",
+    "takenBy": "That combination is taken by: {name}",
+    "replaceAnyway": "Take it anyway",
+    "cancel": "Cancel",
+    "defaultTaken": "Its default is taken — choose a combination",
+    "refused": {
+      "reserved": "The browser keeps that combination; it never reaches the app",
+      "needsModifier": "Hold Ctrl, Alt or Shift with the key, or choose an F key"
+    },
+    "fixed": {
+      "chromium": "The browser itself acts on this key, so it cannot be moved",
+      "host": "The key is handed to the native tab strip the moment it is pressed",
+      "listModel": "This is a key of the open list, not a command of the app"
+    },
     "section": "Keyboard shortcuts"
   },
   "advanced": {

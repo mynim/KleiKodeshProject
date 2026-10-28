@@ -20,6 +20,7 @@ import { useBooksDataStore } from '@/stores/booksDataStore'
 import { useBookViewStore } from '@/stores/bookViewStore'
 import { useOverflowSubmenu } from './useOverflowSubmenu'
 import { getWordLinkTargetsForBook, wordLinkAnchorsSupported } from '@/webview-host/seforimApi'
+import { withShortcut } from '@/shortcuts/shortcutHint'
 
 const props = defineProps<{
   bookId: number | undefined
@@ -198,12 +199,12 @@ function toggleAll() {
       ref="toggleButtonRef"
       :class="{ active: isOpen || anyHiddenGlobally, 'overflow-row': inOverflow }"
       :role="inOverflow ? 'menuitem' : undefined"
-      :title="$t('bookView.markers.title')"
+      :title="withShortcut($t('bookView.markers.title'), 'bookView.wordLinkMarkers')"
       @click="toggleOpen"
     >
       <IconLinkDismiss20Regular v-if="anyHiddenGlobally" />
       <IconLink20Regular v-else />
-      <span v-if="inOverflow">{{ $t('bookView.markers.title') }}</span>
+      <span v-if="inOverflow">{{ withShortcut($t('bookView.markers.title'), 'bookView.wordLinkMarkers') }}</span>
     </button>
 
     <div v-if="isOpen" ref="dropdownRef" class="wl-markers-dropdown" :class="inOverflow ? 'overflow-submenu' : `dropdown-${toolbarPosition}`" :style="submenuStyle">

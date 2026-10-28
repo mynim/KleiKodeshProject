@@ -24,7 +24,7 @@ The section components are independent — each imports the stores it needs dire
 
 **SettingsPageResetSection.vue** — the four reset actions (settings, search index, document locator index, full app reset) with their `ConfirmDialog`. Completely self-contained — no props.
 
-**SettingsPageKeyboardShortcutsSection.vue** — keyboard shortcuts reference grid. No script, no reactivity.
+**SettingsPageKeyboardShortcutsSection.vue** — keyboard shortcuts reference grid. A wrapper with no script of its own; the grid is `ShortcutsReferenceList.vue`, whose rows are derived from the shortcut registry in `src/shortcuts/` rather than written out here. The setup wizard's shortcuts step shows the same component.
 
 **SettingsExcludedFoldersDialog.vue** — dev-mode excluded-folders manager, mirroring the hosted app's WinForms `ExcludedFoldersForm` (list, add via the native folder dialog, remove selected, confirm to persist) in the app's own theme. Nothing is written until אישור. Persists via `setExcludedFolders` in `bridge.ts` to `excluded_folders.json` inside the file-search index directory — the same file and format the hosted DocumentLocator service uses. Hosted mode opens the native dialog instead and never mounts this component.
 
