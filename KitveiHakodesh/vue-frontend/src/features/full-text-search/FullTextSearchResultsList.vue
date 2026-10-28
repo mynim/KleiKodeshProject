@@ -11,6 +11,7 @@ import type { WindowedScrollerApi, WindowedScrollerScrollToOptions } from '@/com
 import { wantsNewTab, withNewTabHint } from '@/composables/useOpenInNewTab'
 import { useInputListNavigation } from '@/composables/useInputListNavigation'
 import { useFullTextSearchPreview } from './useFullTextSearchPreview'
+import { wantsPreviewToggle } from './resultsKeyboard'
 import FullTextSearchResultPreview from './FullTextSearchResultPreview.vue'
 import MessageBanner from '@/components/MessageBanner.vue'
 import { INDEX_REBUILD_BUTTON_LABELS } from '@/composables/useSearchIndexStatus'
@@ -430,6 +431,13 @@ function onNavigationKeydown(event: KeyboardEvent): boolean {
       revealResult(firstVisible)
       return true
     }
+  }
+  if (wantsPreviewToggle(event, activeIndex.value >= 0)) {
+    const result = shownResults.value[activeIndex.value]
+    if (!result) return false
+    event.preventDefault()
+    void togglePreview(result)
+    return true
   }
   return moveHighlight(event)
 }

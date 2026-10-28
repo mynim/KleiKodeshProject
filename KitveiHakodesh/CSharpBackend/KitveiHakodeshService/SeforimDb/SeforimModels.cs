@@ -65,6 +65,29 @@ public sealed class LinesResult { public List<LineRow> Rows { get; set; } = new(
 [MessagePack.MessagePackObject(keyAsPropertyName: true)]
 public sealed class LineCharCountsArgs { public int BookId { get; set; } }
 
+/// <summary>The in-book / commentary substring search: the query as typed, the ranges to
+/// search as flat triples (bookId, firstLineIndex, lastLineIndex — flat so a panel's
+/// thousands of ranges stay small on the wire), and the version to read through (0 = the
+/// merged text).</summary>
+[MessagePack.MessagePackObject(keyAsPropertyName: true)]
+public sealed class LinesSubstringSearchArgs
+{
+    public string? Query { get; set; }
+    public int[]? RangeTriples { get; set; }
+    public int VersionId { get; set; }
+}
+
+/// <summary>Parallel arrays: the lines holding the query, by book in first-seen order then
+/// reading order, and how many times each holds it.</summary>
+[MessagePack.MessagePackObject(keyAsPropertyName: true)]
+public sealed class LinesSubstringSearchResult
+{
+    public int[] BookIds { get; set; } = Array.Empty<int>();
+    public int[] LineIndexes { get; set; } = Array.Empty<int>();
+    public int[] LineIds { get; set; } = Array.Empty<int>();
+    public int[] Counts { get; set; } = Array.Empty<int>();
+}
+
 [MessagePack.MessagePackObject(keyAsPropertyName: true)]
 public sealed class LineIdsByRangeArgs { public int BookId { get; set; } public int FromIndex { get; set; } public int ToIndex { get; set; } }
 
@@ -255,19 +278,12 @@ public sealed class FtsSearchArgs
 //    over one pipe connection until the search finishes. No polling anywhere. ──
 
 [MessagePack.MessagePackObject(keyAsPropertyName: true)]
-public sealed class FtsSnippetsArgs
+public sealed class FtsSnippetTextsArgs
 {
-    public string? Query { get; set; }
+    /// <summary>Lines whose own text is wanted.</summary>
     public List<int>? LineIds { get; set; }
-    public bool RequireOrdered { get; set; }
-    public int ContextWords { get; set; } = 8;
-}
-
-[MessagePack.MessagePackObject(keyAsPropertyName: true)]
-public sealed class FtsLinesSearchArgs
-{
-    public string? Query { get; set; }
-    public List<global::KitveiHakodesh.Core.SeforimDbFullTextSearch.FtsLineRange>? Ranges { get; set; }
+    /// <summary>Lines flagged short: their text plus neighbour context.</summary>
+    public List<int>? ShortLineIds { get; set; }
 }
 
 [MessagePack.MessagePackObject(keyAsPropertyName: true)]
@@ -277,6 +293,8 @@ public sealed class FtsSearchStreamArgs
     public int MaxWordDistance { get; set; } = 10;
     public bool RequireOrdered { get; set; }
     public int ContextWords { get; set; } = 8;
+    /// <summary>Resume after this line (the last hit the caller holds); 0 = from the start.</summary>
+    public int ResumeAfterLineId { get; set; }
     // Spelling variants / related forms are per word, in the query: '^' / '+'.
 }
 

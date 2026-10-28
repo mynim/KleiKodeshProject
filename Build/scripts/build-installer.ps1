@@ -140,7 +140,7 @@ Push-Location (Join-Path $ProjectRoot "KitveiHakodesh\vue-frontend")
 # npm ci deletes node_modules first, which fails half-way (leaving it gutted) while a
 # local dev server holds esbuild.exe. So npm ci only in CI; locally the same lock file
 # is installed in place, without rewriting package.json / package-lock.json.
-$npmArgs = if ($env:CI) { @("ci") } else { @("install", "--no-save", "--no-audit", "--no-fund") }
+$npmArgs = @(if ($env:CI) { "ci" } else { "install", "--no-save", "--no-audit", "--no-fund" })
 try { & "C:\Program Files\nodejs\npm.cmd" @npmArgs } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: npm ci failed." -ForegroundColor Red; exit 1 }
 
@@ -352,8 +352,8 @@ Complete-BuildSteps
 Write-Host ""
 Write-Host "SUCCESS: https://github.com/KleiKodesh/KleiKodeshProject/releases/tag/$version" -ForegroundColor Green
 
-# gh release create does not fire notify-website.yml / release-issue-check.yml
-# (not with the Actions token), so start both here - for local and CI releases alike.
+# gh release create does not fire notify-website.yml / release-issue-check.yml / drive-upload.yml
+# (not with the Actions token), so start them here - for local and CI releases alike.
 # The website repo needs its own token: WEBSITE_DISPATCH_TOKEN when set (CI), else gh's login.
 $ghToken = $env:GH_TOKEN
 if ($env:WEBSITE_DISPATCH_TOKEN) { $env:GH_TOKEN = $env:WEBSITE_DISPATCH_TOKEN }
@@ -362,3 +362,5 @@ if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: website update dispatch failed."
 $env:GH_TOKEN = $ghToken
 gh workflow run release-issue-check.yml --repo KleiKodesh/KleiKodeshProject -f tag=$version
 if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: release-issue-check dispatch failed." -ForegroundColor Yellow }
+gh workflow run drive-upload.yml --repo KleiKodesh/KleiKodeshProject
+if ($LASTEXITCODE -ne 0) { Write-Host "WARNING: Drive sync dispatch failed." -ForegroundColor Yellow }

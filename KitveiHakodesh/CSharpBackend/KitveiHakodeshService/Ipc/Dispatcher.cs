@@ -235,6 +235,19 @@ public sealed class Dispatcher(
                         : new OpenInDefaultAppResult { Error = openError }));
                 }
 
+                // PDF viewer TOC autosave — the dev-mode equivalent of the hosted "writePdfTail"
+                // bridge action. Same path checks as a shell-open, then Core's tail writer.
+                case "writePdfTail":
+                {
+                    var a = MsgPack.De<WritePdfTailArgs>(req.Args);
+                    if (!localFileGrants.TryValidateForShellOpen(a.Path, out string full, out string error))
+                        return RpcResponse.Ok(MsgPack.Ser(new OpenInDefaultAppResult { Error = error }));
+                    string? writeError = PdfIncrementalSaveWriter.WriteTail(full, a.Offset, a.Tail, a.Anchor);
+                    return RpcResponse.Ok(MsgPack.Ser(writeError is null
+                        ? new OpenInDefaultAppResult { Ok = true }
+                        : new OpenInDefaultAppResult { Error = writeError }));
+                }
+
                 // Open assembled HTML as a new Word document — the dev-mode equivalent of the
                 // hosted app's "exportToWord" bridge action (WordExporter.ExportCore). Word
                 // imports HTML only by opening a file, so the service writes a temp .html named
@@ -631,6 +644,20 @@ public sealed class Dispatcher(
                     return RpcResponse.Ok(MsgPack.Ser(new LinesResult { Rows = seforim.GetLinesPaged(a.BookId, a.Limit, a.Offset, a.VersionId) }));
                 }
 
+                // The in-book / commentary substring search, whole: index when it can, native scan otherwise (Core).
+                case "linesSubstringSearch":
+                {
+                    var a = MsgPack.De<LinesSubstringSearchArgs>(req.Args);
+                    var triples = a.RangeTriples ?? Array.Empty<int>();
+                    var ranges = new List<global::KitveiHakodesh.Core.SeforimDbFullTextSearch.FtsLineRange>(triples.Length / 3);
+                    for (int i = 0; i + 2 < triples.Length; i += 3)
+                        ranges.Add(new global::KitveiHakodesh.Core.SeforimDbFullTextSearch.FtsLineRange { BookId = triples[i], FirstLineIndex = triples[i + 1], LastLineIndex = triples[i + 2] });
+                    var hits = seforim.SubstringSearch(fts.Coordinator, a.Query ?? "", ranges, a.VersionId);
+                    var bookIds = new int[hits.Count]; var lineIndexes = new int[hits.Count]; var lineIds = new int[hits.Count]; var counts = new int[hits.Count];
+                    for (int i = 0; i < hits.Count; i++) { bookIds[i] = hits[i].BookId; lineIndexes[i] = hits[i].LineIndex; lineIds[i] = hits[i].LineId; counts[i] = hits[i].Count; }
+                    return RpcResponse.Ok(MsgPack.Ser(new LinesSubstringSearchResult { BookIds = bookIds, LineIndexes = lineIndexes, LineIds = lineIds, Counts = counts }));
+                }
+
                 case "getLineIds":
                 {
                     var a = MsgPack.De<LineIdsByRangeArgs>(req.Args);
@@ -842,18 +869,11 @@ public sealed class Dispatcher(
                     return RpcResponse.Ok(MsgPack.Ser(res));
                 }
 
-                // Snippets for the rows a page shows (the stream sends them for the first hits only).
-                case "ftsSnippets":
+                // Snippet texts for the rows a page shows (the hits already carry their descriptors).
+                case "ftsSnippetTexts":
                 {
-                    var a = MsgPack.De<FtsSnippetsArgs>(req.Args);
-                    return RpcResponse.Ok(MsgPack.Ser(fts.Snippets(a.Query ?? "", a.LineIds ?? new(), a.RequireOrdered, a.ContextWords)));
-                }
-
-                // Scoped substring search (in-book, commentary panel): candidate lines from the index (Core).
-                case "ftsLinesSearch":
-                {
-                    var a = MsgPack.De<FtsLinesSearchArgs>(req.Args);
-                    return RpcResponse.Ok(MsgPack.Ser(fts.LinesSearch(a.Query ?? "", a.Ranges ?? new())));
+                    var a = MsgPack.De<FtsSnippetTextsArgs>(req.Args);
+                    return RpcResponse.Ok(MsgPack.Ser(fts.SnippetTexts(a.LineIds ?? new(), a.ShortLineIds ?? new())));
                 }
 
                 case "ftsIndexingStatus":
@@ -945,7 +965,7 @@ public sealed class Dispatcher(
                 var a = MsgPack.De<FtsSearchStreamArgs>(req.Args);
                 await fts.StreamSearch(
                     a.Query ?? "", a.MaxWordDistance, a.RequireOrdered, a.ContextWords,
-                    chunk => writeFrame(RpcResponse.Ok(MsgPack.Ser(chunk))), ct);
+                    chunk => writeFrame(RpcResponse.Ok(MsgPack.Ser(chunk))), ct, a.ResumeAfterLineId);
                 return true;
             }
 

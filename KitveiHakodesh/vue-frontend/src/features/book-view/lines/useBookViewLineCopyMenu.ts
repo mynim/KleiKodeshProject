@@ -2,12 +2,13 @@ import { t } from '@/i18n'
 import { watch } from 'vue'
 import type { Ref } from 'vue'
 import type { ContextMenuItem } from '@/components/ContextMenu.vue'
-import type { LineItem } from './useBookViewLinesTable'
+import type { LinesTable } from './linesTable'
 import type { TocEntry } from '@/webview-host/queries.types'
 import type { Note } from './useBookViewNotes'
 import type { useTabStore } from '@/stores/tabStore'
 import type { PaneNavigation } from '@/composables/usePaneNavigation'
 import BookViewAnnotationMenuRow from './BookViewAnnotationMenuRow.vue'
+import BookViewAddNoteMenuRow from './BookViewAddNoteMenuRow.vue'
 import { cleanHebrewText } from '@/utils/hebrewTextCleaning'
 import { contentInAnnotationOffsetSpace } from './useBookViewLineRenderer'
 import { escapeHtml, htmlToText, serializeRangeBalanced } from '@/utils/htmlText'
@@ -32,7 +33,7 @@ type TabStore = ReturnType<typeof useTabStore>
 
 interface CopyMenuOptions {
   scrollerEl: Ref<HTMLElement | null>
-  lines: () => LineItem[]
+  lines: () => LinesTable
   isSelectAll: Ref<boolean>
   selectAllInContainer: () => void
   /**
@@ -61,6 +62,8 @@ interface CopyMenuOptions {
    * them alive after the menu closes.
    */
   onReportError?: () => void
+  /** Bookmarks the selection, or the top of the view with none. */
+  onCreateBookmark?: () => void
   /**
    * Warms the lazily-loaded notes and citations for a set of lines before an export
    * reads them. Awaited by the copy actions — see prepareAndCopy for why the
@@ -153,7 +156,7 @@ interface SelectionResult {
  * if a line scrolled out of the virtualized DOM, the browser would have clamped the
  * selection at that boundary. So `range.startContainer` reliably belongs to the true
  * first line of the *current* selection. We walk up from it to the nearest
- * [data-index] row and map that array index to lines[idx].lineIndex.
+ * [data-index] row and map that row index to the table's lineIndex.
  *
  * Falls back to the old intersect-scan over rendered .line nodes only if the walk-up
  * fails (e.g. the start boundary sits on the scroller container itself, not a row).
@@ -161,14 +164,14 @@ interface SelectionResult {
 function resolveFirstLineIndex(
   scrollerEl: HTMLElement | null,
   range: Range,
-  lines: LineItem[],
+  lines: LinesTable,
 ): number | null {
   const indexFromNode = (node: Node | null): number | null => {
     const el = node instanceof Element ? node : node?.parentElement ?? null
     const row = el?.closest('[data-index]') as HTMLElement | null
     const dataIndex = row?.dataset['index']
     if (dataIndex == null) return null
-    return lines[parseInt(dataIndex, 10)]?.lineIndex ?? null
+    return lines.at(parseInt(dataIndex, 10))?.lineIndex ?? null
   }
 
   const fromStart = indexFromNode(range.startContainer)
@@ -184,7 +187,7 @@ function resolveFirstLineIndex(
 
 function extractSelection(
   scrollerEl: HTMLElement | null,
-  lines: LineItem[],
+  lines: LinesTable,
   isSelectAll: boolean,
   renderLine?: (raw: string, lineIndex: number, lineId: number) => string,
 ): SelectionResult | null {
@@ -194,12 +197,13 @@ function extractSelection(
     // paste (matching a normal selection), and with it ON the flatten step strips
     // the <div>s to one continuous run. Callers that want flat text (search query,
     // quotation re-collect) strip all tags anyway, so the wrappers don't affect them.
-    const joined = lines
-      .filter((l) => l.content != null)
-      .map((l) => `<div class="line">${renderLine ? renderLine(l.content!, l.lineIndex, l.id) : l.content!}</div>`)
-      .join('')
-    const firstLineIndex = lines.find((l) => l.content != null)?.lineIndex ?? null
-    return { joined, firstLineIndex }
+    const parts: string[] = []
+    let firstLineIndex: number | null = null
+    lines.forEachLoaded((l) => {
+      firstLineIndex ??= l.lineIndex
+      parts.push(`<div class="line">${renderLine ? renderLine(l.content, l.lineIndex, l.id) : l.content}</div>`)
+    })
+    return { joined: parts.join(''), firstLineIndex }
   }
 
   const sel = window.getSelection()
@@ -234,7 +238,7 @@ function extractSelection(
  */
 function extractSelectionWithUnmountedLines(
   scrollerEl: HTMLElement | null,
-  lines: LineItem[],
+  lines: LinesTable,
   rowIndexRange: { firstRowIndex: number; lastRowIndex: number } | null,
   perLineHtml: boolean,
   renderLine?: (raw: string, lineIndex: number, lineId: number) => string,
@@ -261,7 +265,7 @@ function extractSelectionWithUnmountedLines(
 
   const htmlParts: string[] = [serializeRangeBalanced(firstRowRange, scrollerEl)]
   for (let rowIndex = firstRowIndex + 1; rowIndex < lastRowIndex; rowIndex++) {
-    const line = lines[rowIndex]
+    const line = lines.at(rowIndex)
     if (!line || line.content == null) continue
     const lineHtml = renderLine ? renderLine(line.content, line.lineIndex, line.id) : line.content
     htmlParts.push(perLineHtml ? lineHtml : `<div class="line">${lineHtml}</div>`)
@@ -271,7 +275,7 @@ function extractSelectionWithUnmountedLines(
   const joined = htmlParts.filter((part) => part.trim()).join(perLineHtml ? ' ' : '')
   if (!joined.trim()) return null
 
-  return { joined, firstLineIndex: lines[firstRowIndex]?.lineIndex ?? null }
+  return { joined, firstLineIndex: lines.at(firstRowIndex)?.lineIndex ?? null }
 }
 
 // ── Composable ────────────────────────────────────────────────────────────────
@@ -280,7 +284,7 @@ function extractSelectionWithUnmountedLines(
  * Builds the full RTL HTML for exporting a book to Word.
  */
 export function buildBookExportHtml(
-  lines: LineItem[],
+  lines: LinesTable,
   bookTitle: string,
   renderLine: (raw: string, lineIndex: number, lineId: number) => string,
   getNoteById: (noteId: number) => Note | undefined,
@@ -290,12 +294,11 @@ export function buildBookExportHtml(
     return found ? { noteText: found.note, quote: found.quote } : undefined
   }
 
-  const renderedLines = lines
-    .filter((l) => l.content != null)
-    .map((l) => `<div class="book-line">${renderLine(l.content!, l.lineIndex, l.id)}</div>`)
-    .join('\n')
+  const renderedLines: string[] = []
+  lines.forEachLoaded((l) => renderedLines.push(`<div class="book-line">${renderLine(l.content, l.lineIndex, l.id)}</div>`))
+  const renderedBody = renderedLines.join('\n')
 
-  const { html: bodyHtml, endnotes } = extractEndnotes(renderedLines, resolveNote)
+  const { html: bodyHtml, endnotes } = extractEndnotes(renderedBody, resolveNote)
   const endnotesHtml = buildEndnotesHtml(endnotes)
 
   return (
@@ -661,8 +664,13 @@ export function useBookViewLineCopyMenu(options: CopyMenuOptions): { items: Cont
     props: {
       onHighlight: options.onHighlight ?? (() => {}),
       onClearHighlight: options.onClearHighlight ?? (() => {}),
-      onAddNote: options.onAddNote ?? (() => {}),
     },
+  }
+
+  const addNoteRow: ContextMenuItem = {
+    type: 'component',
+    component: BookViewAddNoteMenuRow,
+    props: { onAddNote: options.onAddNote ?? (() => {}) },
   }
 
   return {
@@ -672,6 +680,9 @@ export function useBookViewLineCopyMenu(options: CopyMenuOptions): { items: Cont
       { label: t('bookView.copy.intoWord'), action: onPasteIntoWord, shortcut: 'Ctrl+V' },
       { label: t('bookView.copy.toSearch'), action: onSearchInRepository, shortcut: 'Ctrl+Shift+C' },
       { label: t('bookView.copy.link'), action: options.onCopyLineLink ?? (() => {}) },
+      { label: t('bookView.bookmarks.add'), action: options.onCreateBookmark ?? (() => {}), shortcut: 'Ctrl+Shift+D' },
+      addNoteRow,
+      { label: t('bookView.report.title'), action: options.onReportError ?? (() => {}) },
       { type: 'separator' },
       {
         type: 'submenu',
@@ -719,8 +730,6 @@ export function useBookViewLineCopyMenu(options: CopyMenuOptions): { items: Cont
           },
         ],
       },
-      { type: 'separator' },
-      { label: t('bookView.report.title'), action: options.onReportError ?? (() => {}) },
       { type: 'separator' },
       annotationRow,
     ],

@@ -52,6 +52,28 @@ export async function getLinesPaged(
 }
 
 /**
+ * The in-book and commentary-panel search, whole, run by the service: every line inside the
+ * (book, first lineIndex, last lineIndex) ranges that holds `query` as a substring — the
+ * same normalization as stripHtmlForSearch/removeDiacriticsForSearch — and how many times,
+ * as parallel arrays by book then reading order. The service narrows with the full-text
+ * index when it can and confirms or scans the text natively; `versionId` reads through an
+ * alternate version's overlay (0 = the merged text). Numbers only; nothing is kept.
+ */
+export async function linesSubstringSearch(
+  query: string,
+  ranges: { bookId: number; firstLineIndex: number; lastLineIndex: number }[],
+  versionId = 0,
+): Promise<{ bookIds: number[]; lineIndexes: number[]; lineIds: number[]; counts: number[] }> {
+  const rangeTriples = new Array<number>(ranges.length * 3)
+  for (let i = 0; i < ranges.length; i++) {
+    rangeTriples[i * 3] = ranges[i]!.bookId
+    rangeTriples[i * 3 + 1] = ranges[i]!.firstLineIndex
+    rangeTriples[i * 3 + 2] = ranges[i]!.lastLineIndex
+  }
+  return serviceCall('linesSubstringSearch', { query, rangeTriples, versionId })
+}
+
+/**
  * The ids of a book's lines in [fromIndex, toIndex), by lineIndex, with no text (0
  * where a lineIndex has no row). A TOC section's commentary and a shift-click range
  * need ids only; this is what lets them skip downloading the section's text.
@@ -60,46 +82,22 @@ export async function getLineIds(bookId: number, fromIndex: number, toIndex: num
   return (await seforimOp<{ ids: number[] }>('getLineIds', { bookId, fromIndex, toIndex })).ids
 }
 
-/**
- * Snippets for rows the search page shows: the stream carries a snippet for a search's
- * first hits only, and every later hit is numbers alone until the page asks here, with
- * the same query (as sent) and options. Each hit comes back with its snippet descriptor;
- * the snippet lines' texts ride along, and `terms` is the matched-term table the marks'
- * term ids index into — numbered for THIS response, so the caller maps them onto the
- * search's own table. A line that no longer matches is absent.
- */
-export async function ftsSnippets(
-  query: string, lineIds: number[], requireOrdered: boolean, contextWords: number,
-): Promise<{ hits: FullTextSearchHitRow[]; lineTexts: Record<string, string>; terms: string[] }> {
-  return serviceCall('ftsSnippets', { query, lineIds, requireOrdered, contextWords })
-}
-
-/** One full-text hit as the service sends it (mirror of FtsHit in SeforimDbFtsModels.cs). */
-export interface FullTextSearchHitRow {
+/** A snippet's text (mirror of FtsSnippetText in SeforimDbFtsModels.cs): the matched line's
+ *  own text, and for a short window the same book's neighbour lines before / after it. */
+export interface FtsSnippetText {
   lineId: number
-  bookId: number
-  tocEntryId: number
-  score: number
-  wordDistance: number
-  snippetLineIds: number[]
-  snippetStart: number
-  snippetEnd: number
-  snippetMarks: number[]
-  snippetFlags: number
+  text: string
+  before: string
+  after: string
 }
 
 /**
- * Scoped substring search from the full-text index: every line inside the given
- * (book, first lineIndex, last lineIndex) ranges that MAY hold `query` as a substring
- * (a superset — confirm on the text), as parallel arrays. `answered` false while the
- * index is building, or when it cannot answer exactly (a fragment too common): the
- * caller reads the lines itself. Used by the in-book search and the commentary search.
+ * Snippet texts for rows the search page shows — the hits already carry their snippet
+ * descriptors, so this is a plain text read: each line's text, and for `shortLineIds` also
+ * their neighbour context, in one statement. A line with no text is absent.
  */
-export async function ftsLinesSearch(
-  query: string,
-  ranges: { bookId: number; firstLineIndex: number; lastLineIndex: number }[],
-): Promise<{ answered: boolean; bookIds: number[]; lineIndexes: number[]; lineIds: number[] }> {
-  return serviceCall('ftsLinesSearch', { query, ranges })
+export async function ftsSnippetTexts(lineIds: number[], shortLineIds: number[]): Promise<FtsSnippetText[]> {
+  return serviceCall('ftsSnippetTexts', { lineIds, shortLineIds })
 }
 
 /**
