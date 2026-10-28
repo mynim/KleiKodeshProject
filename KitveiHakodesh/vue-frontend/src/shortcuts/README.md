@@ -36,6 +36,10 @@ that, and no test would notice. So nothing here listens for anything.
 | `shortcutScopes.ts` | Where a shortcut is live, as DECLARED information — used to pick which definitions a handler asks about, and to decide whether two bindings on one combination can collide. |
 | `shortcutDefinitions.ts` | The catalog: id, combination(s), scope, group, label key, and whether it can be reassigned. |
 | `shortcutIndex.ts` | Combination → id, pure. |
+| `chordAssignment.ts` | Whether a combination can be assigned at all — the browser's own keys, and the ones that would fire while the reader is typing. Pure. |
+| `shortcutBindings.ts` | The defaults with the reader's changes laid over them, and what collided. Pure. |
+| `shortcutSettings.ts` | The reader's changes: held, persisted, reset. The one place that touches the disk. |
+| `useShortcutCapture.ts` | Catching the combination they press, for one row of the settings list. |
 | `matchShortcut.ts` | What the handlers call. Reads the host flag, builds the index once, answers with an id. |
 | `shortcutRows.ts` | The settings list as a pure function of the host and the window width. |
 | `useShortcutRows.ts` | The same, wired to the real host flags and window size. |
@@ -50,6 +54,27 @@ that, and no test would notice. So nothing here listens for anything.
 Leave `listing` off only for a binding with no row to show. Leave `hosts` off
 unless the same combination has to mean different things in different hosts
 (only Ctrl+Tab does).
+
+## Changing one
+
+`features/settings/ShortcutsReferenceList.vue` renders the list, and with
+`editable` (the settings page; not the setup wizard) each row that can be
+changed becomes a button. `useShortcutCapture` then takes the next keydown:
+
+- **nothing is written until it can be written cleanly.** A combination the
+  browser owns is refused with a reason; one another shortcut holds is put to the
+  reader as a question, and taking it anyway leaves that shortcut with no key —
+  which its row then says, rather than it silently going dead.
+- **every shortcut stands down while a row is waiting** (`isCapturingShortcut`,
+  read by `matchShortcut`), so pressing Ctrl+W to BIND it does not also close a
+  tab. That is one gate inside the registry; no handler changed for it.
+- **only the changes are stored**, under `shortcuts.overrides` through the app's
+  own `lsGet`/`lsSet`. A shortcut added in a later version has no entry and
+  takes its default, so there is no migration to write; a default the reader has
+  moved away from stays moved. Anything unreadable, unknown or no longer
+  changeable is dropped on the way in (`initShortcutSettings`), so the rest of
+  the app never sees malformed data. "Reset settings" clears the key with every
+  other preference, which puts the shortcuts back to their defaults.
 
 ## What is fixed, and why
 

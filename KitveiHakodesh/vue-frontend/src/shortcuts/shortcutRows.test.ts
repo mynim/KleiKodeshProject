@@ -5,14 +5,30 @@
  * changed nothing on screen.
  */
 import { describe, it, expect } from 'vitest'
-import { buildShortcutRows } from './shortcutRows'
+import { buildShortcutRows, type ShortcutRowConditions } from './shortcutRows'
 import { keyCellTokens } from './chordLabel'
+import { resolveBindings, type ShortcutOverrides } from './shortcutBindings'
+import { definitionsForHost } from './shortcutDefinitions'
 
 const WIDE_DESKTOP = { nativeTabs: true, notVsto: true, wideScreen: true }
 const TASK_PANE = { nativeTabs: false, notVsto: false, wideScreen: false }
 
-function rowIds(conditions: Parameters<typeof buildShortcutRows>[0]) {
-  return buildShortcutRows(conditions).map((group) => [group.id, group.rows.map((row) => row.id)])
+function rows(conditions: ShortcutRowConditions, overrides: ShortcutOverrides = {}) {
+  return buildShortcutRows(
+    resolveBindings(definitionsForHost(conditions.nativeTabs), overrides),
+    conditions,
+  )
+}
+
+function rowIds(conditions: ShortcutRowConditions) {
+  return rows(conditions).map((group) => [group.id, group.rows.map((row) => row.id)])
+}
+
+/** One row, by id, out of whichever group holds it. */
+function row(conditions: ShortcutRowConditions, id: string, overrides: ShortcutOverrides = {}) {
+  return rows(conditions, overrides)
+    .flatMap((group) => group.rows)
+    .find((candidate) => candidate.id === id)
 }
 
 describe('the demo host, with a native tab strip', () => {
@@ -165,5 +181,37 @@ describe('the key cell', () => {
       { sep: '/' },
       { kbd: '↓' },
     ])
+  })
+})
+
+describe('a shortcut the reader has moved', () => {
+  it('shows the combination they chose, not the one it shipped with', () => {
+    expect(row(WIDE_DESKTOP, 'nav.home', { 'nav.home': 'Ctrl+Shift+KeyG' })).toMatchObject({
+      chord: 'Ctrl+Shift+KeyG',
+      keys: [{ kbd: 'Ctrl' }, { sep: '+' }, { kbd: 'Shift' }, { sep: '+' }, { kbd: 'G' }],
+    })
+  })
+
+  it('says so plainly when they left it with no key', () => {
+    // An empty key cell would read as a rendering fault; the row says "no key".
+    expect(row(WIDE_DESKTOP, 'nav.home', { 'nav.home': null })).toMatchObject({
+      chord: null,
+      keys: [],
+    })
+  })
+
+  it('marks the shortcut whose default they took', () => {
+    // The other row is not left silently dead: it carries who holds its key, so
+    // the list can ask the reader to pick another.
+    expect(row(WIDE_DESKTOP, 'nav.menu', { 'nav.home': 'Ctrl+KeyM' })).toMatchObject({
+      chord: null,
+      heldBy: 'nav.home',
+    })
+  })
+
+  it('offers no change on the ones that cannot take it', () => {
+    expect(row(WIDE_DESKTOP, 'view.caretBrowsing')?.fixed).toBe('chromium')
+    expect(row(WIDE_DESKTOP, 'searchResults.move')?.fixed).toBe('listModel')
+    expect(row(WIDE_DESKTOP, 'nav.home')?.fixed).toBeUndefined()
   })
 })
