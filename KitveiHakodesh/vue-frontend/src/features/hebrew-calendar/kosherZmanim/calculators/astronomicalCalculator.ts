@@ -52,18 +52,4 @@ export abstract class AstronomicalCalculator {
     if (zenith !== GEOMETRIC_ZENITH) return zenith
     return zenith + (this.solarRadius + this.refraction + this.getElevationAdjustment(elevation))
   }
-
-  /**
-   * The zenith of the apparent horizon at sunrise ([isSunrise]) or sunset: where the sun's center is when its upper
-   * limb touches the horizon. Calculators with a finer model of the horizon override it.
-   */
-  horizonZenith(_date: Temporal.PlainDate, geoLocation: GeoLocation, _isSunrise: boolean, adjustForElevation: boolean): number {
-    return GEOMETRIC_ZENITH + this.solarRadius + this.refraction +
-      (adjustForElevation ? this.getElevationAdjustment(geoLocation.elevation) : 0.0)
-  }
-
-  /** Solar midnight, UTC hours, or NaN to let the calendar take it as halfway between two solar noons. */
-  getUTCMidnight(_date: Temporal.PlainDate, _geoLocation: GeoLocation): number {
-    return Number.NaN
-  }
 }

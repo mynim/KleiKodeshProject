@@ -65,13 +65,9 @@ export class ComplexZmanimCalendar extends ZmanimCalendar {
   }
 
   /**
-   * The calculator's own solar midnight when it has one; otherwise halfway between this chatzos and
-   * tomorrow's, halving the exact nanosecond distance before cutting it to whole milliseconds.
+   * Halfway between this chatzos and tomorrow's, halving the exact nanosecond distance before cutting it to whole milliseconds.
    */
   get solarMidnight(): Instant | null {
-    const calculatorMidnight = this.astronomicalCalculator.getUTCMidnight(this.adjustedLocalDate.toPlainDate(), this.geoLocation)
-    if (!Number.isNaN(calculatorMidnight)) return this.getDateFromTime(calculatorMidnight, false)
-
     const clonedCal = new ComplexZmanimCalendar(this.geoLocation)
     clonedCal.astronomicalCalculator = this.astronomicalCalculator.copy()
     clonedCal.localDateTime = plusDaysInZone(this.localDateTime, 1, this.geoLocation.timeZoneId)

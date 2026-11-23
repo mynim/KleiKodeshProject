@@ -66,18 +66,6 @@ export class AstronomicalCalendar {
     return this.getDateFromTime(this.getUTCSunset(offsetZenith), false)
   }
 
-  /** When the sun is [degrees] below the calculator's apparent sea-level horizon of the morning. */
-  getSunriseOffsetByDegreesBelowHorizon(degrees: number): Instant | null {
-    const horizon = this.astronomicalCalculator.horizonZenith(this.adjustedLocalDate.toPlainDate(), this.geoLocation, true, false)
-    return this.getSunriseOffsetByDegrees(horizon + degrees)
-  }
-
-  /** When the sun is [degrees] below the calculator's apparent sea-level horizon of the evening. */
-  getSunsetOffsetByDegreesBelowHorizon(degrees: number): Instant | null {
-    const horizon = this.astronomicalCalculator.horizonZenith(this.adjustedLocalDate.toPlainDate(), this.geoLocation, false, false)
-    return this.getSunsetOffsetByDegrees(horizon + degrees)
-  }
-
   getUTCSunrise(zenith: number): number {
     return this.astronomicalCalculator.getUTCSunrise(this.adjustedLocalDate.toPlainDate(), this.geoLocation, zenith, true)
   }

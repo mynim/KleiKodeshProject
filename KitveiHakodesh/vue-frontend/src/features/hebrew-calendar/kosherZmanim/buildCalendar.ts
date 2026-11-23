@@ -1,8 +1,6 @@
 // Ported from KosherKotlin (LGPL-2.1), https://github.com/kdroidFilter/KosherKotlin commit 582e904,
 // app/composeApp/src/commonMain/kotlin/app/domain/ZmanimRepository.kt (`calendarFor`).
 import 'temporal-polyfill/global'
-import { ClimateRefractionCalculator } from './calculators/climateRefractionCalculator'
-import { type PlaceClimate, STANDARD_CLIMATE } from './calculators/horizonRefraction'
 import { ComplexZmanimCalendar } from './calendars/complexZmanimCalendar'
 import { GeoLocation } from './location/geoLocation'
 
@@ -20,11 +18,9 @@ export interface KosherZmanimOptions {
   useElevation: boolean
   /** Minutes before sea-level sunset; 18 when left out. */
   candleLightingOffset?: number
-  /** The place's monthly temperatures for the refraction; the standard 15 C when left out. */
-  climate?: PlaceClimate
 }
 
-/** The calendar for a place and date, computed with the climate refraction calculator. */
+/** The calendar for a place and date, computed with the standard NOAA calculator (the calendar's default). */
 export function buildComplexZmanimCalendar(options: KosherZmanimOptions): ComplexZmanimCalendar {
   const calendar = ComplexZmanimCalendar.forDate(
     new GeoLocation(options.lat, options.lng, options.elevation, options.tzid),
@@ -32,6 +28,5 @@ export function buildComplexZmanimCalendar(options: KosherZmanimOptions): Comple
     options.useElevation,
     options.candleLightingOffset ?? 18.0,
   )
-  calendar.astronomicalCalculator = new ClimateRefractionCalculator(options.climate ?? STANDARD_CLIMATE)
   return calendar
 }

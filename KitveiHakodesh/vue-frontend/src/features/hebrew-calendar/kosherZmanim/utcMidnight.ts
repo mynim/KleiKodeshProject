@@ -1,5 +1,5 @@
 // Ported from KosherKotlin (LGPL-2.1), https://github.com/kdroidFilter/KosherKotlin commit 582e904.
-// `date.atStartOfDayIn(TimeZone.UTC).toEpochMilliseconds()`, used by SpaCalculator.kt and AstronomicalCalendar.kt.
+// `date.atStartOfDayIn(TimeZone.UTC).toEpochMilliseconds()`, used by AstronomicalCalendar.kt.
 
 export const DAY_MILLIS = 86_400_000
 
